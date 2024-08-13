@@ -1,5 +1,10 @@
 name: release-workflow-telemetry
 
+permissions:
+  contents: read
+  packages: write
+  actions: read
+
 on:
   workflow_dispatch:
     inputs:
@@ -17,17 +22,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.FORESIGHT_GITHUB_TOKEN }}
       - name: Configure Git User
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
-      - name: Use Node.js 16.x
+      - name: Set up Node.js
         uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          registry-url: https://registry.npmjs.org
       - run: npm version ${{ github.event.inputs.version_scale }}
       - run: |
           git add .
@@ -60,7 +60,6 @@ jobs:
       - name: Create a GitHub release
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.FORESIGHT_GITHUB_TOKEN }}
           script: |
             try {
               const response = await github.rest.repos.createRelease({
