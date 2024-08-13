@@ -54245,7 +54245,9 @@ const logger = __importStar(__nccwpck_require__(4636));
 const { pull_request } = github.context.payload;
 const { workflow, job, repo, runId, sha } = github.context;
 const PAGE_SIZE = 100;
-const octokit = new action_1.Octokit();
+const octokit = new action_1.Octokit({
+    auth: core.getInput('github_token')
+});
 function getCurrentJob() {
     return __awaiter(this, void 0, void 0, function* () {
         const _getCurrentJob = () => __awaiter(this, void 0, void 0, function* () {
