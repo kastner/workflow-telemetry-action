@@ -1590,7 +1590,7 @@ class HttpClient {
         if (this._keepAlive && useProxy) {
             agent = this._proxyAgent;
         }
-        if (this._keepAlive && !useProxy) {
+        if (!useProxy) {
             agent = this._agent;
         }
         // if agent is already assigned use that agent.
@@ -1622,15 +1622,11 @@ class HttpClient {
             agent = tunnelAgent(agentOptions);
             this._proxyAgent = agent;
         }
-        // if reusing agent across request and tunneling agent isn't assigned create a new agent
-        if (this._keepAlive && !agent) {
+        // if tunneling agent isn't assigned create a new agent
+        if (!agent) {
             const options = { keepAlive: this._keepAlive, maxSockets };
             agent = usingSsl ? new https.Agent(options) : new http.Agent(options);
             this._agent = agent;
-        }
-        // if not using private agent and tunnel agent isn't setup then use global agent
-        if (!agent) {
-            agent = usingSsl ? https.globalAgent : http.globalAgent;
         }
         if (usingSsl && this._ignoreSslError) {
             // we don't want to set NODE_TLS_REJECT_UNAUTHORIZED=0 since that will affect request for entire process
@@ -2620,6 +2616,8 @@ function useColors() {
 		return false;
 	}
 
+	let m;
+
 	// Is webkit? http://stackoverflow.com/a/16459606/376773
 	// document is undefined in react-native: https://github.com/facebook/react-native/pull/1632
 	return (typeof document !== 'undefined' && document.documentElement && document.documentElement.style && document.documentElement.style.WebkitAppearance) ||
@@ -2627,7 +2625,7 @@ function useColors() {
 		(typeof window !== 'undefined' && window.console && (window.console.firebug || (window.console.exception && window.console.table))) ||
 		// Is firefox >= v31?
 		// https://developer.mozilla.org/en-US/docs/Tools/Web_Console#Styling_messages
-		(typeof navigator !== 'undefined' && navigator.userAgent && navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/) && parseInt(RegExp.$1, 10) >= 31) ||
+		(typeof navigator !== 'undefined' && navigator.userAgent && (m = navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/)) && parseInt(m[1], 10) >= 31) ||
 		// Double check webkit in userAgent just in case we are in a worker
 		(typeof navigator !== 'undefined' && navigator.userAgent && navigator.userAgent.toLowerCase().match(/applewebkit\/(\d+)/));
 }
@@ -3256,11 +3254,11 @@ function getDate() {
 }
 
 /**
- * Invokes `util.format()` with the specified arguments and writes to stderr.
+ * Invokes `util.formatWithOptions()` with the specified arguments and writes to stderr.
  */
 
 function log(...args) {
-	return process.stderr.write(util.format(...args) + '\n');
+	return process.stderr.write(util.formatWithOptions(exports.inspectOpts, ...args) + '\n');
 }
 
 /**
@@ -3936,7 +3934,7 @@ RedirectableRequest.prototype._processResponse = function (response) {
      redirectUrl.protocol !== "https:" ||
      redirectUrl.host !== currentHost &&
      !isSubdomain(redirectUrl.host, currentHost)) {
-    removeMatchingHeaders(/^(?:authorization|cookie)$/i, this._options.headers);
+    removeMatchingHeaders(/^(?:(?:proxy-)?authorization|cookie)$/i, this._options.headers);
   }
 
   // Evaluate the beforeRedirect callback
@@ -5636,7 +5634,7 @@ function getLinuxAudioPci() {
   let cmd = 'lspci -v 2>/dev/null';
   let result = [];
   try {
-    const parts = execSync(cmd).toString().split('\n\n');
+    const parts = execSync(cmd, util.execOptsLinux).toString().split('\n\n');
     parts.forEach(element => {
       const lines = element.split('\n');
       if (lines && lines.length && lines[0].toLowerCase().indexOf('audio') >= 0) {
@@ -6036,7 +6034,7 @@ module.exports = function (callback) {
         try {
           const workload = [];
           workload.push(util.powerShell('Get-CimInstance Win32_Battery | select BatteryStatus, DesignCapacity, DesignVoltage, EstimatedChargeRemaining, DeviceID | fl'));
-          workload.push(util.powerShell('(Get-CimInstance -Class BatteryStaticData -Namespace ROOT/WMI).DesignedCapacity'));
+          workload.push(util.powerShell('(Get-WmiObject -Class BatteryStaticData -Namespace ROOT/WMI).DesignedCapacity'));
           workload.push(util.powerShell('(Get-CimInstance -Class BatteryFullChargedCapacity -Namespace ROOT/WMI).FullChargedCapacity'));
           util.promiseAll(
             workload
@@ -6255,7 +6253,7 @@ function bluetoothDevices(callback) {
         });
         // determine "connected" with hcitool con
         try {
-          const hdicon = execSync('hcitool con').toString().toLowerCase();
+          const hdicon = execSync('hcitool con', util.execOptsLinux).toString().toLowerCase();
           for (let i = 0; i < result.length; i++) {
             if (result[i].macDevice && result[i].macDevice.length > 10 && hdicon.indexOf(result[i].macDevice.toLowerCase()) >= 0) {
               result[i].connected = true;
@@ -7414,7 +7412,7 @@ function cpuTemperature(callback) {
         // CPU Chipset, Socket
         try {
           const cmd = 'cat /sys/class/thermal/thermal_zone*/type  2>/dev/null; echo "-----"; cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null;';
-          const parts = execSync(cmd).toString().split('-----\n');
+          const parts = execSync(cmd, util.execOptsLinux).toString().split('-----\n');
           if (parts.length === 2) {
             const lines = parts[0].split('\n');
             const lines2 = parts[1].split('\n');
@@ -7970,7 +7968,7 @@ function getLoad() {
         // linux: try to get other cpu stats
         if (_linux) {
           try {
-            const lines = execSync('cat /proc/stat 2>/dev/null | grep cpu', { encoding: 'utf8' }).toString().split('\n');
+            const lines = execSync('cat /proc/stat 2>/dev/null | grep cpu', util.execOptsLinux).toString().split('\n');
             if (lines.length > 1) {
               lines.shift();
               if (lines.length === cpus.length) {
@@ -9447,7 +9445,7 @@ function fsSize(drive, callback) {
         if (_linux) {
           try {
             cmd = 'export LC_ALL=C; df -lkPTx squashfs; unset LC_ALL';
-            execSync('cat /proc/mounts 2>/dev/null').toString().split('\n').filter(line => {
+            execSync('cat /proc/mounts 2>/dev/null', util.execOptsLinux).toString().split('\n').filter(line => {
               return line.startsWith('/');
             }).forEach((line) => {
               osMounts[line.split(' ')[0]] = osMounts[line.split(' ')[0]] || false;
@@ -9734,7 +9732,7 @@ function raidMatchLinux(data) {
   try {
     data.forEach(element => {
       if (element.type.startsWith('raid')) {
-        const lines = execSync(`mdadm --export --detail /dev/${element.name}`).toString().split('\n');
+        const lines = execSync(`mdadm --export --detail /dev/${element.name}`, util.execOptsLinux).toString().split('\n');
         const mdData = decodeMdabmData(lines);
 
         element.label = mdData.label; // <- assign label info
@@ -10395,7 +10393,7 @@ function diskLayout(callback) {
               } catch (e) {
                 // fallback to older version of lsblk
                 try {
-                  const out2 = execSync('export LC_ALL=C; lsblk -bPo NAME,TYPE,SIZE,FSTYPE,MOUNTPOINT,UUID,ROTA,RO,RM,LABEL,MODEL,OWNER,GROUP 2>/dev/null; unset LC_ALL').toString();
+                  const out2 = execSync('export LC_ALL=C; lsblk -bPo NAME,TYPE,SIZE,FSTYPE,MOUNTPOINT,UUID,ROTA,RO,RM,LABEL,MODEL,OWNER,GROUP 2>/dev/null; unset LC_ALL', util.execOptsLinux).toString();
                   let lines = blkStdoutToObject(out2).split('\n');
                   const data = parseBlk(lines);
                   devices = data.filter(item => { return (item.type === 'disk') && item.size > 0 && ((item.model !== null && item.model !== '') || (item.mount === '' && item.label === '' && item.fsType === '')); });
@@ -10408,7 +10406,7 @@ function diskLayout(callback) {
                 const BSDName = '/dev/' + device.name;
                 const logical = device.name;
                 try {
-                  mediumType = execSync('cat /sys/block/' + logical + '/queue/rotational 2>/dev/null').toString().split('\n')[0];
+                  mediumType = execSync('cat /sys/block/' + logical + '/queue/rotational 2>/dev/null', util.execOptsLinux).toString().split('\n')[0];
                 } catch (e) {
                   util.noop();
                 }
@@ -11042,7 +11040,7 @@ function graphics(callback) {
     // PCI bus IDs
     let pciIDs = [];
     try {
-      pciIDs = execSync('export LC_ALL=C; dmidecode -t 9 2>/dev/null; unset LC_ALL | grep "Bus Address: "').toString().split('\n');
+      pciIDs = execSync('export LC_ALL=C; dmidecode -t 9 2>/dev/null; unset LC_ALL | grep "Bus Address: "', util.execOptsLinux).toString().split('\n');
       for (let i = 0; i < pciIDs.length; i++) {
         pciIDs[i] = pciIDs[i].replace('Bus Address:', '').replace('0000:', '').trim();
       }
@@ -11247,6 +11245,9 @@ function graphics(callback) {
     if (nvidiaSmiExe) {
       const nvidiaSmiOpts = '--query-gpu=driver_version,pci.sub_device_id,name,pci.bus_id,fan.speed,memory.total,memory.used,memory.free,utilization.gpu,utilization.memory,temperature.gpu,temperature.memory,power.draw,power.limit,clocks.gr,clocks.mem --format=csv,noheader,nounits';
       const cmd = nvidiaSmiExe + ' ' + nvidiaSmiOpts + (_linux ? '  2>/dev/null' : '');
+      if (_linux) {
+        options.stdio = ['pipe', 'pipe', 'ignore'];
+      }
       try {
         const res = execSync(cmd, options).toString();
         return res;
@@ -12765,7 +12766,7 @@ const LINUX_RAM_manufacturers = {
   '04CD': 'G-Skill',
   '059B': 'Crucial',
   '00CE': 'Samsung',
-  '1315': 'Crutial',
+  '1315': 'Crucial',
   '014F': 'Transcend Information',
   '2C00': 'Micron Technology Inc.',
   '802C': 'Micron Technology Inc.',
@@ -13112,7 +13113,7 @@ function memLayout(callback) {
 
             // Try Raspberry PI
             try {
-              let stdout = execSync('cat /proc/cpuinfo 2>/dev/null');
+              let stdout = execSync('cat /proc/cpuinfo 2>/dev/null', util.execOptsLinux);
               let lines = stdout.toString().split('\n');
               let model = util.getValue(lines, 'hardware', ':', true).toUpperCase();
               let version = util.getValue(lines, 'revision', ':', true).toLowerCase();
@@ -13132,14 +13133,14 @@ function memLayout(callback) {
                 result[0].clockSpeed = version && version[4] && version[4] === 'd' ? 500 : result[0].clockSpeed;
                 result[0].formFactor = 'SoC';
 
-                stdout = execSync('vcgencmd get_config sdram_freq 2>/dev/null');
+                stdout = execSync('vcgencmd get_config sdram_freq 2>/dev/null', util.execOptsLinux);
                 lines = stdout.toString().split('\n');
                 let freq = parseInt(util.getValue(lines, 'sdram_freq', '=', true), 10) || 0;
                 if (freq) {
                   result[0].clockSpeed = freq;
                 }
 
-                stdout = execSync('vcgencmd measure_volts sdram_p 2>/dev/null');
+                stdout = execSync('vcgencmd measure_volts sdram_p 2>/dev/null', util.execOptsLinux);
                 lines = stdout.toString().split('\n');
                 let voltage = parseFloat(util.getValue(lines, 'volt', '=', true)) || 0;
                 if (voltage) {
@@ -13243,7 +13244,7 @@ function memLayout(callback) {
         const FormFactors = 'Unknown|Other|SIP|DIP|ZIP|SOJ|Proprietary|SIMM|DIMM|TSOP|PGA|RIMM|SODIMM|SRIMM|SMD|SSMP|QFP|TQFP|SOIC|LCC|PLCC|BGA|FPBGA|LGA'.split('|');
 
         try {
-          util.powerShell('Get-CimInstance Win32_PhysicalMemory | select DataWidth,TotalWidth,Capacity,BankLabel,MemoryType,SMBIOSMemoryType,ConfiguredClockSpeed,FormFactor,Manufacturer,PartNumber,SerialNumber,ConfiguredVoltage,MinVoltage,MaxVoltage | fl').then((stdout, error) => {
+          util.powerShell('Get-CimInstance Win32_PhysicalMemory | select DataWidth,TotalWidth,Capacity,BankLabel,MemoryType,SMBIOSMemoryType,ConfiguredClockSpeed,FormFactor,Manufacturer,PartNumber,SerialNumber,ConfiguredVoltage,MinVoltage,MaxVoltage,Tag | fl').then((stdout, error) => {
             if (!error) {
               let devices = stdout.toString().split(/\n\s*\n/);
               devices.shift();
@@ -13252,10 +13253,12 @@ function memLayout(callback) {
                 const dataWidth = util.toInt(util.getValue(lines, 'DataWidth', ':'));
                 const totalWidth = util.toInt(util.getValue(lines, 'TotalWidth', ':'));
                 const size = parseInt(util.getValue(lines, 'Capacity', ':'), 10) || 0;
+                const tag = util.getValue(lines, 'Tag', ':');
+                const tagInt = util.splitByNumber(tag);
                 if (size) {
                   result.push({
                     size,
-                    bank: util.getValue(lines, 'BankLabel', ':'), // BankLabel
+                    bank: util.getValue(lines, 'BankLabel', ':') + (tagInt[1] ? '/' + tagInt[1] : ''), // BankLabel
                     type: memoryTypes[parseInt(util.getValue(lines, 'MemoryType', ':'), 10) || parseInt(util.getValue(lines, 'SMBIOSMemoryType', ':'), 10)],
                     ecc: dataWidth && totalWidth ? totalWidth > dataWidth : false,
                     clockSpeed: parseInt(util.getValue(lines, 'ConfiguredClockSpeed', ':'), 10) || parseInt(util.getValue(lines, 'Speed', ':'), 10) || 0,
@@ -13385,7 +13388,7 @@ function getDefaultNetworkInterface() {
     }
     if (_linux) {
       let cmd = 'ip route 2> /dev/null | grep default';
-      let result = execSync(cmd);
+      let result = execSync(cmd, util.execOptsLinux);
       let parts = result.toString().split('\n')[0].split(/\s+/);
       if (parts[0] === 'none' && parts[5]) {
         ifacename = parts[5];
@@ -13424,7 +13427,7 @@ function getMacAddresses() {
   if (_linux || _freebsd || _openbsd || _netbsd) {
     if (typeof pathToIp === 'undefined') {
       try {
-        const lines = execSync('which ip').toString().split('\n');
+        const lines = execSync('which ip', util.execOptsLinux).toString().split('\n');
         if (lines.length && lines[0].indexOf(':') === -1 && lines[0].indexOf('/') === 0) {
           pathToIp = lines[0];
         } else {
@@ -13436,7 +13439,7 @@ function getMacAddresses() {
     }
     try {
       const cmd = 'export LC_ALL=C; ' + ((pathToIp) ? pathToIp + ' link show up' : '/sbin/ifconfig') + '; unset LC_ALL';
-      let res = execSync(cmd);
+      let res = execSync(cmd, util.execOptsLinux);
       const lines = res.toString().split('\n');
       for (let i = 0; i < lines.length; i++) {
         if (lines[i] && lines[i][0] !== ' ') {
@@ -13805,7 +13808,7 @@ function getLinuxIfaceConnectionName(interfaceName) {
   const cmd = `nmcli device status 2>/dev/null | grep ${interfaceName}`;
 
   try {
-    const result = execSync(cmd).toString();
+    const result = execSync(cmd, util.execOptsLinux).toString();
     const resultFormat = result.replace(/\s+/g, ' ').trim();
     const connectionNameLines = resultFormat.split(' ').slice(3);
     const connectionName = connectionNameLines.join(' ');
@@ -13819,7 +13822,7 @@ function checkLinuxDCHPInterfaces(file) {
   let result = [];
   try {
     let cmd = `cat ${file} 2> /dev/null | grep 'iface\\|source'`;
-    const lines = execSync(cmd, { maxBuffer: 1024 * 20000 }).toString().split('\n');
+    const lines = execSync(cmd, util.execOptsLinux).toString().split('\n');
 
     lines.forEach(line => {
       const parts = line.replace(/\s+/g, ' ').trim().split(' ');
@@ -13844,7 +13847,7 @@ function getLinuxDHCPNics() {
   let cmd = 'ip a 2> /dev/null';
   let result = [];
   try {
-    const lines = execSync(cmd, { maxBuffer: 1024 * 20000 }).toString().split('\n');
+    const lines = execSync(cmd, util.execOptsLinux).toString().split('\n');
     const nsections = splitSectionsNics(lines);
     result = (parseLinuxDHCPNics(nsections));
   } catch (e) {
@@ -13885,7 +13888,7 @@ function getLinuxIfaceDHCPstatus(iface, connectionName, DHCPNics) {
   if (connectionName) {
     const cmd = `nmcli connection show "${connectionName}" 2>/dev/null | grep ipv4.method;`;
     try {
-      const lines = execSync(cmd).toString();
+      const lines = execSync(cmd, util.execOptsLinux).toString();
       const resultFormat = lines.replace(/\s+/g, ' ').trim();
 
       let dhcStatus = resultFormat.split(' ').slice(1).toString();
@@ -13925,7 +13928,7 @@ function getLinuxIfaceDNSsuffix(connectionName) {
   if (connectionName) {
     const cmd = `nmcli connection show "${connectionName}" 2>/dev/null | grep ipv4.dns-search;`;
     try {
-      const result = execSync(cmd).toString();
+      const result = execSync(cmd, util.execOptsLinux).toString();
       const resultFormat = result.replace(/\s+/g, ' ').trim();
       const dnsSuffix = resultFormat.split(' ').slice(1).toString();
       return dnsSuffix == '--' ? 'Not defined' : dnsSuffix;
@@ -13941,7 +13944,7 @@ function getLinuxIfaceIEEE8021xAuth(connectionName) {
   if (connectionName) {
     const cmd = `nmcli connection show "${connectionName}" 2>/dev/null | grep 802-1x.eap;`;
     try {
-      const result = execSync(cmd).toString();
+      const result = execSync(cmd, util.execOptsLinux).toString();
       const resultFormat = result.replace(/\s+/g, ' ').trim();
       const authenticationProtocol = resultFormat.split(' ').slice(1).toString();
 
@@ -14169,7 +14172,7 @@ function networkInterfaces(callback, rescan, defaultString) {
 
               let lines = [];
               try {
-                lines = execSync(cmd).toString().split('\n');
+                lines = execSync(cmd, util.execOptsLinux).toString().split('\n');
                 const connectionName = getLinuxIfaceConnectionName(ifaceSanitized);
                 dhcp = getLinuxIfaceDHCPstatus(ifaceSanitized, connectionName, _dhcpNics);
                 dnsSuffix = getLinuxIfaceDNSsuffix(connectionName);
@@ -14327,7 +14330,7 @@ function networkInterfaces(callback, rescan, defaultString) {
                     ifaceName = detail.name;
                     dhcp = detail.dhcp;
                     operstate = detail.operstate;
-                    speed = detail.speed;
+                    speed = operstate === 'up' ? detail.speed : 0;
                     type = detail.type;
                     foundFirst = true;
                   }
@@ -15253,13 +15256,13 @@ function getFQDN() {
   let fqdn = os.hostname;
   if (_linux || _darwin) {
     try {
-      const stdout = execSync('hostnamectl --json short 2>/dev/null');
+      const stdout = execSync('hostnamectl --json short 2>/dev/null', util.execOptsLinux);
       const json = JSON.parse(stdout.toString());
 
       fqdn = json['StaticHostname'];
     } catch (e) {
       try {
-        const stdout = execSync('hostname -f 2>/dev/null');
+        const stdout = execSync('hostname -f 2>/dev/null', util.execOptsLinux);
         fqdn = stdout.toString().split(os.EOL)[0];
       } catch (e) {
         util.noop();
@@ -15405,6 +15408,7 @@ function osInfo(callback) {
           result.codename = (result.release.startsWith('12.') ? 'macOS Monterey' : result.codename);
           result.codename = (result.release.startsWith('13.') ? 'macOS Ventura' : result.codename);
           result.codename = (result.release.startsWith('14.') ? 'macOS Sonoma' : result.codename);
+          result.codename = (result.release.startsWith('15.') ? 'macOS Sequoia' : result.codename);
           result.uefi = true;
           result.codepage = util.getCodepage();
           if (callback) {
@@ -16207,8 +16211,8 @@ function uuid(callback) {
         });
       }
       if (_linux) {
-        const cmd = `echo -n "os: "; cat /var/lib/dbus/machine-id 2> /dev/null; echo;
-echo -n "os: "; cat /etc/machine-id 2> /dev/null; echo;
+        const cmd = `echo -n "os: "; cat /var/lib/dbus/machine-id 2> /dev/null ||
+cat /etc/machine-id 2> /dev/null; echo;
 echo -n "hardware: "; cat /sys/class/dmi/id/product_uuid 2> /dev/null; echo;`;
         exec(cmd, function (error, stdout) {
           const lines = stdout.toString().split('\n');
@@ -16641,7 +16645,7 @@ function services(srv, callback) {
         if (_linux || _freebsd || _openbsd || _netbsd || _darwin) {
           if ((_linux || _freebsd || _openbsd || _netbsd) && srvString === '*') {
             try {
-              const tmpsrv = execSync('systemctl --all --type=service --no-legend 2> /dev/null').toString().split('\n');
+              const tmpsrv = execSync('systemctl --all --type=service --no-legend 2> /dev/null', util.execOptsLinux).toString().split('\n');
               srvs = [];
               for (const s of tmpsrv) {
                 const name = s.split('.service')[0];
@@ -16653,7 +16657,7 @@ function services(srv, callback) {
             } catch (d) {
               try {
                 srvString = '';
-                const tmpsrv = execSync('service --status-all 2> /dev/null').toString().split('\n');
+                const tmpsrv = execSync('service --status-all 2> /dev/null', util.execOptsLinux).toString().split('\n');
                 for (const s of tmpsrv) {
                   const parts = s.split(']');
                   if (parts.length === 2) {
@@ -16663,7 +16667,7 @@ function services(srv, callback) {
                 srvs = srvString.split('|');
               } catch (e) {
                 try {
-                  const srvStr = execSync('ls /etc/init.d/ -m 2> /dev/null').toString().split('\n').join('');
+                  const srvStr = execSync('ls /etc/init.d/ -m 2> /dev/null', util.execOptsLinux).toString().split('\n').join('');
                   srvString = '';
                   if (srvStr) {
                     const tmpsrv = srvStr.split(',');
@@ -17850,7 +17854,7 @@ function system(callback) {
             echo -n "product_version: "; cat /sys/devices/virtual/dmi/id/product_version 2>/dev/null; echo;
             echo -n "sys_vendor: "; cat /sys/devices/virtual/dmi/id/sys_vendor 2>/dev/null; echo;`;
           try {
-            lines = execSync(cmd).toString().split('\n');
+            lines = execSync(cmd, util.execOptsLinux).toString().split('\n');
             result.manufacturer = result.manufacturer === '' ? util.getValue(lines, 'sys_vendor') : result.manufacturer;
             result.model = result.model === '' ? util.getValue(lines, 'product_name') : result.model;
             result.version = result.version === '' ? util.getValue(lines, 'product_version') : result.version;
@@ -17896,7 +17900,7 @@ function system(callback) {
           }
           if (!result.virtual) {
             try {
-              const disksById = execSync('ls -1 /dev/disk/by-id/ 2>/dev/null').toString();
+              const disksById = execSync('ls -1 /dev/disk/by-id/ 2>/dev/null', util.execOptsLinux).toString();
               if (disksById.indexOf('_QEMU_') >= 0) {
                 result.virtual = true;
                 result.virtualHost = 'QEMU';
@@ -17918,7 +17922,7 @@ function system(callback) {
           }
           if ((_freebsd || _openbsd || _netbsd) && !result.virtualHost) {
             try {
-              const procInfo = execSync('dmidecode -t 4');
+              const procInfo = execSync('dmidecode -t 4', util.execOptsLinux);
               const procLines = procInfo.toString().split('\n');
               const procManufacturer = util.getValue(procLines, 'manufacturer', ':', true);
               switch (procManufacturer.toLowerCase()) {
@@ -18004,12 +18008,14 @@ function system(callback) {
         exec('ioreg -c IOPlatformExpertDevice -d 2', function (error, stdout) {
           if (!error) {
             let lines = stdout.toString().replace(/[<>"]/g, '').split('\n');
+            const model = util.splitByNumber(util.getValue(lines, 'model', '=', true));
+            const version = util.getValue(lines, 'version', '=', true);
             result.manufacturer = util.getValue(lines, 'manufacturer', '=', true);
-            result.model = util.getValue(lines, 'model', '=', true, true);
-            result.version = util.getValue(lines, 'version', '=', true);
+            result.model = version ? util.getValue(lines, 'model', '=', true) : model[0];
+            result.version = version || model[1];
             result.serial = util.getValue(lines, 'ioplatformserialnumber', '=', true);
             result.uuid = util.getValue(lines, 'ioplatformuuid', '=', true).toLowerCase();
-            result.sku = util.getValue(lines, 'board-id', '=', true);
+            result.sku = util.getValue(lines, 'board-id', '=', true) || util.getValue(lines, 'target-sub-type', '=', true);
           }
           if (callback) { callback(result); }
           resolve(result);
@@ -18158,7 +18164,7 @@ function bios(callback) {
             echo -n "bios_vendor: "; cat /sys/devices/virtual/dmi/id/bios_vendor 2>/dev/null; echo;
             echo -n "bios_version: "; cat /sys/devices/virtual/dmi/id/bios_version 2>/dev/null; echo;`;
           try {
-            lines = execSync(cmd).toString().split('\n');
+            lines = execSync(cmd, util.execOptsLinux).toString().split('\n');
             result.vendor = !result.vendor ? util.getValue(lines, 'bios_vendor') : result.vendor;
             result.version = !result.version ? util.getValue(lines, 'bios_version') : result.version;
             datetime = util.getValue(lines, 'bios_date');
@@ -18260,11 +18266,11 @@ function baseboard(callback) {
           workload
         ).then((data) => {
           let lines = data.results[0] ? data.results[0].toString().split('\n') : [''];
-          result.manufacturer = util.getValue(lines, 'Manufacturer');
-          result.model = util.getValue(lines, 'Product Name');
-          result.version = util.getValue(lines, 'Version');
-          result.serial = util.getValue(lines, 'Serial Number');
-          result.assetTag = util.getValue(lines, 'Asset Tag');
+          result.manufacturer = cleanDefaults(util.getValue(lines, 'Manufacturer'));
+          result.model = cleanDefaults(util.getValue(lines, 'Product Name'));
+          result.version = cleanDefaults(util.getValue(lines, 'Version'));
+          result.serial = cleanDefaults(util.getValue(lines, 'Serial Number'));
+          result.assetTag = cleanDefaults(util.getValue(lines, 'Asset Tag'));
           // Non-Root values
           const cmd = `echo -n "board_asset_tag: "; cat /sys/devices/virtual/dmi/id/board_asset_tag 2>/dev/null; echo;
             echo -n "board_name: "; cat /sys/devices/virtual/dmi/id/board_name 2>/dev/null; echo;
@@ -18272,17 +18278,15 @@ function baseboard(callback) {
             echo -n "board_vendor: "; cat /sys/devices/virtual/dmi/id/board_vendor 2>/dev/null; echo;
             echo -n "board_version: "; cat /sys/devices/virtual/dmi/id/board_version 2>/dev/null; echo;`;
           try {
-            lines = execSync(cmd).toString().split('\n');
-            result.manufacturer = !result.manufacturer ? util.getValue(lines, 'board_vendor') : result.manufacturer;
-            result.model = !result.model ? util.getValue(lines, 'board_name') : result.model;
-            result.version = !result.version ? util.getValue(lines, 'board_version') : result.version;
-            result.serial = !result.serial ? util.getValue(lines, 'board_serial') : result.serial;
-            result.assetTag = !result.assetTag ? util.getValue(lines, 'board_asset_tag') : result.assetTag;
+            lines = execSync(cmd, util.execOptsLinux).toString().split('\n');
+            result.manufacturer = cleanDefaults(!result.manufacturer ? util.getValue(lines, 'board_vendor') : result.manufacturer);
+            result.model = cleanDefaults(!result.model ? util.getValue(lines, 'board_name') : result.model);
+            result.version = cleanDefaults(!result.version ? util.getValue(lines, 'board_version') : result.version);
+            result.serial = cleanDefaults(!result.serial ? util.getValue(lines, 'board_serial') : result.serial);
+            result.assetTag = cleanDefaults(!result.assetTag ? util.getValue(lines, 'board_asset_tag') : result.assetTag);
           } catch (e) {
             util.noop();
           }
-          if (result.serial.toLowerCase().indexOf('o.e.m.') !== -1) { result.serial = '-'; }
-          if (result.assetTag.toLowerCase().indexOf('o.e.m.') !== -1) { result.assetTag = '-'; }
 
           // mem
           lines = data.results[1] ? data.results[1].toString().split('\n') : [''];
@@ -18391,6 +18395,18 @@ function baseboard(callback) {
 
 exports.baseboard = baseboard;
 
+function macOsChassisType(model) {
+  model = model.toLowerCase();
+  if (model.startsWith('macbookair')) { return 'Notebook'; }
+  if (model.startsWith('macbookpro')) { return 'Laptop'; }
+  if (model.startsWith('macbook')) { return 'Notebook'; }
+  if (model.startsWith('macmini')) { return 'Desktop'; }
+  if (model.startsWith('imac')) { return 'Desktop'; }
+  if (model.startsWith('macstudio')) { return 'Desktop'; }
+  if (model.startsWith('macpro')) { return 'Tower'; }
+  return 'Other';
+}
+
 function chassis(callback) {
   const chassisTypes = ['Other',
     'Unknown',
@@ -18450,16 +18466,12 @@ function chassis(callback) {
             echo -n "chassis_version: "; cat /sys/devices/virtual/dmi/id/chassis_version 2>/dev/null; echo;`;
         exec(cmd, function (error, stdout) {
           let lines = stdout.toString().split('\n');
-          result.manufacturer = util.getValue(lines, 'chassis_vendor');
+          result.manufacturer = cleanDefaults(util.getValue(lines, 'chassis_vendor'));
           const ctype = parseInt(util.getValue(lines, 'chassis_type').replace(/\D/g, ''));
-          result.type = (ctype && !isNaN(ctype) && ctype < chassisTypes.length) ? chassisTypes[ctype - 1] : '';
-          result.version = util.getValue(lines, 'chassis_version');
-          result.serial = util.getValue(lines, 'chassis_serial');
-          result.assetTag = util.getValue(lines, 'chassis_asset_tag');
-          if (result.manufacturer.toLowerCase().indexOf('o.e.m.') !== -1) { result.manufacturer = '-'; }
-          if (result.version.toLowerCase().indexOf('o.e.m.') !== -1) { result.version = '-'; }
-          if (result.serial.toLowerCase().indexOf('o.e.m.') !== -1) { result.serial = '-'; }
-          if (result.assetTag.toLowerCase().indexOf('o.e.m.') !== -1) { result.assetTag = '-'; }
+          result.type = cleanDefaults((ctype && !isNaN(ctype) && ctype < chassisTypes.length) ? chassisTypes[ctype - 1] : '');
+          result.version = cleanDefaults(util.getValue(lines, 'chassis_version'));
+          result.serial = cleanDefaults(util.getValue(lines, 'chassis_serial'));
+          result.assetTag = cleanDefaults(util.getValue(lines, 'chassis_asset_tag'));
 
           if (callback) { callback(result); }
           resolve(result);
@@ -18469,11 +18481,16 @@ function chassis(callback) {
         exec('ioreg -c IOPlatformExpertDevice -d 2', function (error, stdout) {
           if (!error) {
             let lines = stdout.toString().replace(/[<>"]/g, '').split('\n');
+            const model = util.getValue(lines, 'model', '=', true);
+            const modelParts = util.splitByNumber(model);
+            const version = util.getValue(lines, 'version', '=', true);
             result.manufacturer = util.getValue(lines, 'manufacturer', '=', true);
-            result.model = util.getValue(lines, 'model', '=', true);
-            result.version = util.getValue(lines, 'version', '=', true);
+            result.model = version ? util.getValue(lines, 'model', '=', true) : modelParts[0];
+            result.type = macOsChassisType(result.model);
+            result.version = version || model;
             result.serial = util.getValue(lines, 'ioplatformserialnumber', '=', true);
-            result.assetTag = util.getValue(lines, 'board-id', '=', true);
+            result.assetTag = util.getValue(lines, 'board-id', '=', true) || util.getValue(lines, 'target-type', '=', true);
+            result.sku = util.getValue(lines, 'target-sub-type', '=', true);
           }
 
           if (callback) { callback(result); }
@@ -18561,7 +18578,7 @@ function getLinuxUsbType(type, name) {
   else if (str.indexOf('keyboard') >= 0) { result = 'Keyboard'; }
   else if (str.indexOf('mouse') >= 0) { result = 'Mouse'; }
   else if (str.indexOf('stora') >= 0) { result = 'Storage'; }
-  else if (str.indexOf('mic') >= 0) { result = 'Microphone'; }
+  else if (str.indexOf('microp') >= 0) { result = 'Microphone'; }
   else if (str.indexOf('headset') >= 0) { result = 'Audio'; }
   else if (str.indexOf('audio') >= 0) { result = 'Audio'; }
 
@@ -18603,6 +18620,11 @@ function parseLinuxUsb(usb) {
   iManufacturerParts.shift();
   const manufacturer = iManufacturerParts.join(' ');
 
+  const iSerial = util.getValue(lines, 'iSerial', ' ', true).trim();
+  let iSerialParts = iSerial.split(' ');
+  iSerialParts.shift();
+  const serial = iSerialParts.join(' ');
+
   result.id = (idVendor.startsWith('0x') ? idVendor.split(' ')[0].substr(2, 10) : '') + ':' + (idProduct.startsWith('0x') ? idProduct.split(' ')[0].substr(2, 10) : '');
   result.name = product;
   result.type = getLinuxUsbType(usbType, product);
@@ -18610,7 +18632,7 @@ function parseLinuxUsb(usb) {
   result.vendor = vendor;
   result.manufacturer = manufacturer;
   result.maxPower = util.getValue(lines, 'MaxPower', ' ', true);
-  result.serialNumber = null;
+  result.serialNumber = serial;
 
   return result;
 }
@@ -18630,11 +18652,10 @@ function getDarwinUsbType(name) {
   else if (name.indexOf('usbhub') >= 0) { result = 'Hub'; }
   else if (name.indexOf(' hub') >= 0) { result = 'Hub'; }
   else if (name.indexOf('mouse') >= 0) { result = 'Mouse'; }
-  else if (name.indexOf('mic') >= 0) { result = 'Microphone'; }
+  else if (name.indexOf('microp') >= 0) { result = 'Microphone'; }
   else if (name.indexOf('removable') >= 0) { result = 'Storage'; }
   return result;
 }
-
 
 function parseDarwinUsb(usb, id) {
   const result = {};
@@ -18703,6 +18724,7 @@ function getWindowsUsbTypeCreation(creationclass, name) {
   else if (creationclass.indexOf('usbcontroller') >= 0) { result = 'Controller'; }
   else if (creationclass.indexOf('keyboard') >= 0) { result = 'Keyboard'; }
   else if (creationclass.indexOf('pointing') >= 0) { result = 'Mouse'; }
+  else if (creationclass.indexOf('microp') >= 0) { result = 'Microphone'; }
   else if (creationclass.indexOf('disk') >= 0) { result = 'Storage'; }
   return result;
 }
@@ -18778,7 +18800,7 @@ function usb(callback) {
             const parts = stdout.toString().split(/\n\s*\n/);
             for (let i = 0; i < parts.length; i++) {
               const usb = parseWindowsUsb(parts[i].split('\n'), i);
-              if (usb) {
+              if (usb && result.filter(x => x.deviceId === usb.deviceId).length === 0) {
                 result.push(usb);
               }
             }
@@ -19231,7 +19253,13 @@ const execOptsWin = {
   windowsHide: true,
   maxBuffer: 1024 * 20000,
   encoding: 'UTF-8',
-  env: util._extend({}, process.env, { LANG: 'en_US.UTF-8' })
+  env: Object.assign({}, process.env, { LANG: 'en_US.UTF-8' })
+};
+
+const execOptsLinux = {
+  maxBuffer: 1024 * 20000,
+  encoding: 'UTF-8',
+  stdio: ['pipe', 'pipe', 'ignore']
 };
 
 function toInt(value) {
@@ -19242,6 +19270,20 @@ function toInt(value) {
   return result;
 }
 
+function splitByNumber(str) {
+  let numberStarted = false;
+  let num = '';
+  let cpart = '';
+  for (const c of str) {
+    if ((c >= '0' && c <= '9') || numberStarted) {
+      numberStarted = true;
+      num += c;
+    } else {
+      cpart += c;
+    }
+  }
+  return [cpart, num];
+}
 
 const stringReplace = new String().replace;
 const stringToLower = new String().toLowerCase;
@@ -19563,7 +19605,7 @@ function powerShellStart() {
       windowsHide: true,
       maxBuffer: 1024 * 20000,
       encoding: 'UTF-8',
-      env: util._extend({}, process.env, { LANG: 'en_US.UTF-8' })
+      env: Object.assign({}, process.env, { LANG: 'en_US.UTF-8' })
     });
     if (_psChild && _psChild.pid) {
       _psPersistent = true;
@@ -19581,7 +19623,7 @@ function powerShellStart() {
         powerShellProceedResults(_psResult + _psError);
       });
       _psChild.on('close', function () {
-        _psChild.kill();
+        if (_psChild) { _psChild.kill(); }
       });
     }
   }
@@ -19641,7 +19683,7 @@ function powerShell(cmd) {
             windowsHide: true,
             maxBuffer: 1024 * 20000,
             encoding: 'UTF-8',
-            env: util._extend({}, process.env, { LANG: 'en_US.UTF-8' })
+            env: Object.assign({}, process.env, { LANG: 'en_US.UTF-8' })
           });
 
           if (child && !child.pid) {
@@ -19738,7 +19780,7 @@ function getCodepage() {
   if (_linux || _darwin || _freebsd || _openbsd || _netbsd) {
     if (!codepage) {
       try {
-        const stdout = execSync('echo $LANG');
+        const stdout = execSync('echo $LANG', util.execOptsLinux);
         const lines = stdout.toString().split('\r\n');
         const parts = lines[0].split('.');
         codepage = parts.length > 1 ? parts[1].trim() : '';
@@ -19772,7 +19814,7 @@ function smartMonToolsInstalled() {
   }
   if (_linux || _darwin || _freebsd || _openbsd || _netbsd) {
     try {
-      const pathArray = execSync('which smartctl 2>/dev/null', execOptsWin).toString().split('\r\n');
+      const pathArray = execSync('which smartctl 2>/dev/null', execOptsLinux).toString().split('\r\n');
       _smartMonToolsInstalled = pathArray.length > 0;
     } catch (e) {
       util.noop();
@@ -20311,7 +20353,7 @@ function linuxVersion() {
   let result = '';
   if (_linux) {
     try {
-      result = execSync('uname -v').toString();
+      result = execSync('uname -v', util.execOptsLinux).toString();
     } catch (e) {
       result = '';
     }
@@ -20481,7 +20523,9 @@ function semverCompare(v1, v2) {
 function noop() { }
 
 exports.toInt = toInt;
+exports.splitByNumber = splitByNumber;
 exports.execOptsWin = execOptsWin;
+exports.execOptsLinux = execOptsLinux;
 exports.getCodepage = getCodepage;
 exports.execWin = execWin;
 exports.isFunction = isFunction;
@@ -20678,7 +20722,10 @@ const _darwin = (_platform === 'darwin');
 const _windows = (_platform === 'win32');
 
 function wifiDBFromQuality(quality) {
-  return (parseFloat(quality) / 2 - 100);
+  const qual = parseFloat(quality);
+  if (qual < 0) { return 0; }
+  if (qual >= 100) { return -50; }
+  return (qual / 2 - 100);
 }
 
 function wifiQualityFromDB(db) {
@@ -20780,7 +20827,7 @@ function ifaceListLinux() {
   const result = [];
   const cmd = 'iw dev 2>/dev/null';
   try {
-    const all = execSync(cmd).toString().split('\n').map(line => line.trim()).join('\n');
+    const all = execSync(cmd, util.execOptsLinux).toString().split('\n').map(line => line.trim()).join('\n');
     const parts = all.split('\nInterface ');
     parts.shift();
     parts.forEach(ifaceDetails => {
@@ -20799,7 +20846,7 @@ function ifaceListLinux() {
     return result;
   } catch (e) {
     try {
-      const all = execSync('nmcli -t -f general,wifi-properties,wired-properties,interface-flags,capabilities,nsp device show 2>/dev/null').toString();
+      const all = execSync('nmcli -t -f general,wifi-properties,wired-properties,interface-flags,capabilities,nsp device show 2>/dev/null', util.execOptsLinux).toString();
       const parts = all.split('\n\n');
       let i = 1;
       parts.forEach(ifaceDetails => {
@@ -20828,7 +20875,7 @@ function ifaceListLinux() {
 function nmiDeviceLinux(iface) {
   const cmd = `nmcli -t -f general,wifi-properties,capabilities,ip4,ip6 device show ${iface} 2>/dev/null`;
   try {
-    const lines = execSync(cmd).toString().split('\n');
+    const lines = execSync(cmd, util.execOptsLinux).toString().split('\n');
     const ssid = util.getValue(lines, 'GENERAL.CONNECTION');
     return {
       iface,
@@ -20846,7 +20893,7 @@ function nmiDeviceLinux(iface) {
 function nmiConnectionLinux(ssid) {
   const cmd = `nmcli -t --show-secrets connection show ${ssid} 2>/dev/null`;
   try {
-    const lines = execSync(cmd).toString().split('\n');
+    const lines = execSync(cmd, util.execOptsLinux).toString().split('\n');
     const bssid = util.getValue(lines, '802-11-wireless.seen-bssids').toLowerCase();
     return {
       ssid: ssid !== '--' ? ssid : null,
@@ -20867,7 +20914,7 @@ function wpaConnectionLinux(iface) {
   }
   const cmd = `wpa_cli -i ${iface} status 2>&1`;
   try {
-    const lines = execSync(cmd).toString().split('\n');
+    const lines = execSync(cmd, util.execOptsLinux).toString().split('\n');
     const freq = util.toInt(util.getValue(lines, 'freq', '='));
     return {
       ssid: util.getValue(lines, 'ssid', '='),
@@ -20886,7 +20933,7 @@ function getWifiNetworkListNmi() {
   const result = [];
   const cmd = 'nmcli -t -m multiline --fields active,ssid,bssid,mode,chan,freq,signal,security,wpa-flags,rsn-flags device wifi list 2>/dev/null';
   try {
-    const stdout = execSync(cmd, { maxBuffer: 1024 * 20000 });
+    const stdout = execSync(cmd, util.execOptsLinux);
     const parts = stdout.toString().split('ACTIVE:');
     parts.shift();
     parts.forEach(part => {
@@ -20897,14 +20944,15 @@ function getWifiNetworkListNmi() {
       const security = util.getValue(lines, 'SECURITY').replace('(', '').replace(')', '');
       const wpaFlags = util.getValue(lines, 'WPA-FLAGS').replace('(', '').replace(')', '');
       const rsnFlags = util.getValue(lines, 'RSN-FLAGS').replace('(', '').replace(')', '');
+      const quality = util.getValue(lines, 'SIGNAL');
       result.push({
         ssid: util.getValue(lines, 'SSID'),
         bssid: util.getValue(lines, 'BSSID').toLowerCase(),
         mode: util.getValue(lines, 'MODE'),
         channel: channel ? parseInt(channel, 10) : null,
         frequency: frequency ? parseInt(frequency, 10) : null,
-        signalLevel: wifiDBFromQuality(util.getValue(lines, 'SIGNAL')),
-        quality: parseFloat(util.getValue(lines, 'SIGNAL')),
+        signalLevel: wifiDBFromQuality(quality),
+        quality: quality ? parseInt(quality, 10) : null,
         security: security && security !== 'none' ? security.split(' ') : [],
         wpaFlags: wpaFlags && wpaFlags !== 'none' ? wpaFlags.split(' ') : [],
         rsnFlags: rsnFlags && rsnFlags !== 'none' ? rsnFlags.split(' ') : []
@@ -20919,7 +20967,7 @@ function getWifiNetworkListNmi() {
 function getWifiNetworkListIw(iface) {
   const result = [];
   try {
-    let iwlistParts = execSync(`export LC_ALL=C; iwlist ${iface} scan 2>&1; unset LC_ALL`).toString().split('        Cell ');
+    let iwlistParts = execSync(`export LC_ALL=C; iwlist ${iface} scan 2>&1; unset LC_ALL`, util.execOptsLinux).toString().split('        Cell ');
     if (iwlistParts[0].indexOf('resource busy') >= 0) { return -1; }
     if (iwlistParts.length > 1) {
       iwlistParts.shift();
@@ -21053,7 +21101,7 @@ function wifiNetworks(callback) {
         result = getWifiNetworkListNmi();
         if (result.length === 0) {
           try {
-            const iwconfigParts = execSync('export LC_ALL=C; iwconfig 2>/dev/null; unset LC_ALL').toString().split('\n\n');
+            const iwconfigParts = execSync('export LC_ALL=C; iwconfig 2>/dev/null; unset LC_ALL', util.execOptsLinux).toString().split('\n\n');
             let iface = '';
             iwconfigParts.forEach(element => {
               if (element.indexOf('no wireless') === -1 && element.trim() !== '') {
@@ -21189,6 +21237,11 @@ function getVendor(model) {
   return result;
 }
 
+function formatBssid(s) {
+  s = s.replace(/</g, '').replace(/>/g, '').match(/.{1,2}/g) || [];
+  return s.join(':');
+}
+
 function wifiConnections(callback) {
 
   return new Promise((resolve) => {
@@ -21225,6 +21278,7 @@ function wifiConnections(callback) {
           const nmiConnection = nmiConnectionLinux(ssidSanitized);
           const channel = network && network.length && network[0].channel ? network[0].channel : (wpaDetails.channel ? wpaDetails.channel : null);
           const bssid = network && network.length && network[0].bssid ? network[0].bssid : (wpaDetails.bssid ? wpaDetails.bssid : null);
+          const signalLevel = network && network.length && network[0].signalLevel ? network[0].signalLevel : null;
           if (ssid && bssid) {
             result.push({
               id: ifaceDetail.id,
@@ -21236,7 +21290,8 @@ function wifiConnections(callback) {
               frequency: channel ? wifiFrequencyFromChannel(channel) : null,
               type: nmiConnection.type ? nmiConnection.type : '802.11',
               security: nmiConnection.security ? nmiConnection.security : (wpaDetails.security ? wpaDetails.security : null),
-              signalLevel: network && network.length && network[0].signalLevel ? network[0].signalLevel : null,
+              signalLevel,
+              quality: wifiQualityFromDB(signalLevel),
               txRate: null
             });
           }
@@ -21253,19 +21308,24 @@ function wifiConnections(callback) {
             const lines = parts1[1].split('\n\n')[0].split('\n');
             const iface = util.getValue(lines, 'BSD Device Name', ':', true);
             const model = util.getValue(lines, 'hardware', ':', true);
-            cmd = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport -I';
+            cmd = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport -I 2>/dev/null; echo "######" ; ioreg -n AppleBCMWLANSkywalkInterface -r 2>/dev/null';
             exec(cmd, function (error, stdout) {
-              const lines2 = stdout.toString().split('\n');
-              if (lines.length > 10) {
+              const parts = stdout.toString().split('######');
+              const lines2 = parts[0].split('\n');
+              let lines3 = [];
+              if (parts[1].indexOf('  | {') > 0 && parts[1].indexOf('  | }') > parts[1].indexOf('  | {')) {
+                lines3 = parts[1].split('  | {')[1].split('  | }')[0].replace(/ \| /g, '').replace(/"/g, '').split('\n');
+              }
+              if (lines2.length > 10) {
                 const ssid = util.getValue(lines2, 'ssid', ':', true);
-                const bssid = util.getValue(lines2, 'bssid', ':', true);
+                const bssid = util.getValue(lines2, 'bssid', ':', true) || formatBssid(util.getValue(lines3, 'IO80211BSSID', '=', true));
                 const security = util.getValue(lines2, 'link auth', ':', true);
                 const txRate = util.getValue(lines2, 'lastTxRate', ':', true);
                 const channel = util.getValue(lines2, 'channel', ':', true).split(',')[0];
                 const type = '802.11';
                 const rssi = util.toInt(util.getValue(lines2, 'agrCtlRSSI', ':', true));
-                const noise = util.toInt(util.getValue(lines2, 'agrCtlNoise', ':', true));
-                const signalLevel = rssi - noise;
+                /// const noise = util.toInt(util.getValue(lines2, 'agrCtlNoise', ':', true));
+                const signalLevel = rssi;
                 if (ssid || bssid) {
                   result.push({
                     id: 'Wi-Fi',
@@ -21278,6 +21338,33 @@ function wifiConnections(callback) {
                     type,
                     security,
                     signalLevel,
+                    quality: wifiQualityFromDB(signalLevel),
+                    txRate
+                  });
+                }
+              }
+              if (lines3.length > 10) {
+                const ssid = util.getValue(lines3, 'IO80211SSID', '=', true);
+                const bssid = formatBssid(util.getValue(lines3, 'IO80211BSSID', '=', true));
+                const security = '';
+                const txRate = -1;
+                const signalLevel = -1;
+                const quality = -1;
+                const channel = util.getValue(lines3, 'IO80211Channel', '=', true);
+                const type = '802.11';
+                if ((ssid || bssid) && !result.length) {
+                  result.push({
+                    id: 'Wi-Fi',
+                    iface,
+                    model,
+                    ssid,
+                    bssid,
+                    channel: util.toInt(channel),
+                    frequency: channel ? wifiFrequencyFromChannel(channel) : null,
+                    type,
+                    security,
+                    signalLevel,
+                    quality,
                     txRate
                   });
                 }
@@ -21311,7 +21398,8 @@ function wifiConnections(callback) {
               const id = lines[2].indexOf(':') >= 0 ? lines[2].split(':')[1].trim() : '';
               const ssid = util.getValue(lines, 'SSID', ':', true);
               const bssid = util.getValue(lines, 'BSSID', ':', true);
-              const signalLevel = util.getValue(lines, 'Signal', ':', true);
+              const quality = util.getValue(lines, 'Signal', ':', true);
+              const signalLevel = wifiDBFromQuality(quality);
               const type = util.getValue(lines, 'Radio type', ':', true) || util.getValue(lines, 'Type de radio', ':', true) || util.getValue(lines, 'Funktyp', ':', true) || null;
               const security = util.getValue(lines, 'authentication', ':', true) || util.getValue(lines, 'Authentification', ':', true) || util.getValue(lines, 'Authentifizierung', ':', true) || null;
               const channel = util.getValue(lines, 'Channel', ':', true) || util.getValue(lines, 'Canal', ':', true) || util.getValue(lines, 'Kanal', ':', true) || null;
@@ -21328,6 +21416,7 @@ function wifiConnections(callback) {
                   type,
                   security,
                   signalLevel,
+                  quality: quality ? parseInt(quality, 10) : null,
                   txRate: util.toInt(txRate) || null
                 });
               }
@@ -28058,6 +28147,132 @@ module.exports = buildConnector
 
 /***/ }),
 
+/***/ 4462:
+/***/ ((module) => {
+
+"use strict";
+
+
+/** @type {Record<string, string | undefined>} */
+const headerNameLowerCasedRecord = {}
+
+// https://developer.mozilla.org/docs/Web/HTTP/Headers
+const wellknownHeaderNames = [
+  'Accept',
+  'Accept-Encoding',
+  'Accept-Language',
+  'Accept-Ranges',
+  'Access-Control-Allow-Credentials',
+  'Access-Control-Allow-Headers',
+  'Access-Control-Allow-Methods',
+  'Access-Control-Allow-Origin',
+  'Access-Control-Expose-Headers',
+  'Access-Control-Max-Age',
+  'Access-Control-Request-Headers',
+  'Access-Control-Request-Method',
+  'Age',
+  'Allow',
+  'Alt-Svc',
+  'Alt-Used',
+  'Authorization',
+  'Cache-Control',
+  'Clear-Site-Data',
+  'Connection',
+  'Content-Disposition',
+  'Content-Encoding',
+  'Content-Language',
+  'Content-Length',
+  'Content-Location',
+  'Content-Range',
+  'Content-Security-Policy',
+  'Content-Security-Policy-Report-Only',
+  'Content-Type',
+  'Cookie',
+  'Cross-Origin-Embedder-Policy',
+  'Cross-Origin-Opener-Policy',
+  'Cross-Origin-Resource-Policy',
+  'Date',
+  'Device-Memory',
+  'Downlink',
+  'ECT',
+  'ETag',
+  'Expect',
+  'Expect-CT',
+  'Expires',
+  'Forwarded',
+  'From',
+  'Host',
+  'If-Match',
+  'If-Modified-Since',
+  'If-None-Match',
+  'If-Range',
+  'If-Unmodified-Since',
+  'Keep-Alive',
+  'Last-Modified',
+  'Link',
+  'Location',
+  'Max-Forwards',
+  'Origin',
+  'Permissions-Policy',
+  'Pragma',
+  'Proxy-Authenticate',
+  'Proxy-Authorization',
+  'RTT',
+  'Range',
+  'Referer',
+  'Referrer-Policy',
+  'Refresh',
+  'Retry-After',
+  'Sec-WebSocket-Accept',
+  'Sec-WebSocket-Extensions',
+  'Sec-WebSocket-Key',
+  'Sec-WebSocket-Protocol',
+  'Sec-WebSocket-Version',
+  'Server',
+  'Server-Timing',
+  'Service-Worker-Allowed',
+  'Service-Worker-Navigation-Preload',
+  'Set-Cookie',
+  'SourceMap',
+  'Strict-Transport-Security',
+  'Supports-Loading-Mode',
+  'TE',
+  'Timing-Allow-Origin',
+  'Trailer',
+  'Transfer-Encoding',
+  'Upgrade',
+  'Upgrade-Insecure-Requests',
+  'User-Agent',
+  'Vary',
+  'Via',
+  'WWW-Authenticate',
+  'X-Content-Type-Options',
+  'X-DNS-Prefetch-Control',
+  'X-Frame-Options',
+  'X-Permitted-Cross-Domain-Policies',
+  'X-Powered-By',
+  'X-Requested-With',
+  'X-XSS-Protection'
+]
+
+for (let i = 0; i < wellknownHeaderNames.length; ++i) {
+  const key = wellknownHeaderNames[i]
+  const lowerCasedKey = key.toLowerCase()
+  headerNameLowerCasedRecord[key] = headerNameLowerCasedRecord[lowerCasedKey] =
+    lowerCasedKey
+}
+
+// Note: object prototypes should not be able to be referenced. e.g. `Object#hasOwnProperty`.
+Object.setPrototypeOf(headerNameLowerCasedRecord, null)
+
+module.exports = {
+  wellknownHeaderNames,
+  headerNameLowerCasedRecord
+}
+
+
+/***/ }),
+
 /***/ 8045:
 /***/ ((module) => {
 
@@ -28888,6 +29103,7 @@ const { InvalidArgumentError } = __nccwpck_require__(8045)
 const { Blob } = __nccwpck_require__(4300)
 const nodeUtil = __nccwpck_require__(3837)
 const { stringify } = __nccwpck_require__(3477)
+const { headerNameLowerCasedRecord } = __nccwpck_require__(4462)
 
 const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(v => Number(v))
 
@@ -29095,6 +29311,15 @@ const KEEPALIVE_TIMEOUT_EXPR = /timeout=(\d+)/
 function parseKeepAliveTimeout (val) {
   const m = val.toString().match(KEEPALIVE_TIMEOUT_EXPR)
   return m ? parseInt(m[1], 10) * 1000 : null
+}
+
+/**
+ * Retrieves a header name and returns its lowercase value.
+ * @param {string | Buffer} value Header name
+ * @returns {string}
+ */
+function headerNameToString (value) {
+  return headerNameLowerCasedRecord[value] || value.toLowerCase()
 }
 
 function parseHeaders (headers, obj = {}) {
@@ -29368,6 +29593,7 @@ module.exports = {
   isIterable,
   isAsyncIterable,
   isDestroyed,
+  headerNameToString,
   parseRawHeaders,
   parseHeaders,
   parseKeepAliveTimeout,
@@ -33504,6 +33730,9 @@ function httpRedirectFetch (fetchParams, response) {
     // https://fetch.spec.whatwg.org/#cors-non-wildcard-request-header-name
     request.headersList.delete('authorization')
 
+    // https://fetch.spec.whatwg.org/#authentication-entries
+    request.headersList.delete('proxy-authorization', true)
+
     // "Cookie" and "Host" are forbidden request-headers, which undici doesn't implement.
     request.headersList.delete('cookie')
     request.headersList.delete('host')
@@ -36012,14 +36241,18 @@ const { isBlobLike, toUSVString, ReadableStreamFrom } = __nccwpck_require__(3983
 const assert = __nccwpck_require__(9491)
 const { isUint8Array } = __nccwpck_require__(9830)
 
+let supportedHashes = []
+
 // https://nodejs.org/api/crypto.html#determining-if-crypto-support-is-unavailable
 /** @type {import('crypto')|undefined} */
 let crypto
 
 try {
   crypto = __nccwpck_require__(6113)
+  const possibleRelevantHashes = ['sha256', 'sha384', 'sha512']
+  supportedHashes = crypto.getHashes().filter((hash) => possibleRelevantHashes.includes(hash))
+/* c8 ignore next 3 */
 } catch {
-
 }
 
 function responseURL (response) {
@@ -36547,66 +36780,56 @@ function bytesMatch (bytes, metadataList) {
     return true
   }
 
-  // 3. If parsedMetadata is the empty set, return true.
+  // 3. If response is not eligible for integrity validation, return false.
+  // TODO
+
+  // 4. If parsedMetadata is the empty set, return true.
   if (parsedMetadata.length === 0) {
     return true
   }
 
-  // 4. Let metadata be the result of getting the strongest
+  // 5. Let metadata be the result of getting the strongest
   //    metadata from parsedMetadata.
-  const list = parsedMetadata.sort((c, d) => d.algo.localeCompare(c.algo))
-  // get the strongest algorithm
-  const strongest = list[0].algo
-  // get all entries that use the strongest algorithm; ignore weaker
-  const metadata = list.filter((item) => item.algo === strongest)
+  const strongest = getStrongestMetadata(parsedMetadata)
+  const metadata = filterMetadataListByAlgorithm(parsedMetadata, strongest)
 
-  // 5. For each item in metadata:
+  // 6. For each item in metadata:
   for (const item of metadata) {
     // 1. Let algorithm be the alg component of item.
     const algorithm = item.algo
 
     // 2. Let expectedValue be the val component of item.
-    let expectedValue = item.hash
+    const expectedValue = item.hash
 
     // See https://github.com/web-platform-tests/wpt/commit/e4c5cc7a5e48093220528dfdd1c4012dc3837a0e
     // "be liberal with padding". This is annoying, and it's not even in the spec.
 
-    if (expectedValue.endsWith('==')) {
-      expectedValue = expectedValue.slice(0, -2)
-    }
-
     // 3. Let actualValue be the result of applying algorithm to bytes.
     let actualValue = crypto.createHash(algorithm).update(bytes).digest('base64')
 
-    if (actualValue.endsWith('==')) {
-      actualValue = actualValue.slice(0, -2)
+    if (actualValue[actualValue.length - 1] === '=') {
+      if (actualValue[actualValue.length - 2] === '=') {
+        actualValue = actualValue.slice(0, -2)
+      } else {
+        actualValue = actualValue.slice(0, -1)
+      }
     }
 
     // 4. If actualValue is a case-sensitive match for expectedValue,
     //    return true.
-    if (actualValue === expectedValue) {
-      return true
-    }
-
-    let actualBase64URL = crypto.createHash(algorithm).update(bytes).digest('base64url')
-
-    if (actualBase64URL.endsWith('==')) {
-      actualBase64URL = actualBase64URL.slice(0, -2)
-    }
-
-    if (actualBase64URL === expectedValue) {
+    if (compareBase64Mixed(actualValue, expectedValue)) {
       return true
     }
   }
 
-  // 6. Return false.
+  // 7. Return false.
   return false
 }
 
 // https://w3c.github.io/webappsec-subresource-integrity/#grammardef-hash-with-options
 // https://www.w3.org/TR/CSP2/#source-list-syntax
 // https://www.rfc-editor.org/rfc/rfc5234#appendix-B.1
-const parseHashWithOptions = /((?<algo>sha256|sha384|sha512)-(?<hash>[A-z0-9+/]{1}.*={0,2}))( +[\x21-\x7e]?)?/i
+const parseHashWithOptions = /(?<algo>sha256|sha384|sha512)-((?<hash>[A-Za-z0-9+/]+|[A-Za-z0-9_-]+)={0,2}(?:\s|$)( +[!-~]*)?)?/i
 
 /**
  * @see https://w3c.github.io/webappsec-subresource-integrity/#parse-metadata
@@ -36620,8 +36843,6 @@ function parseMetadata (metadata) {
   // 2. Let empty be equal to true.
   let empty = true
 
-  const supportedHashes = crypto.getHashes()
-
   // 3. For each token returned by splitting metadata on spaces:
   for (const token of metadata.split(' ')) {
     // 1. Set empty to false.
@@ -36631,7 +36852,11 @@ function parseMetadata (metadata) {
     const parsedToken = parseHashWithOptions.exec(token)
 
     // 3. If token does not parse, continue to the next token.
-    if (parsedToken === null || parsedToken.groups === undefined) {
+    if (
+      parsedToken === null ||
+      parsedToken.groups === undefined ||
+      parsedToken.groups.algo === undefined
+    ) {
       // Note: Chromium blocks the request at this point, but Firefox
       // gives a warning that an invalid integrity was given. The
       // correct behavior is to ignore these, and subsequently not
@@ -36640,11 +36865,11 @@ function parseMetadata (metadata) {
     }
 
     // 4. Let algorithm be the hash-algo component of token.
-    const algorithm = parsedToken.groups.algo
+    const algorithm = parsedToken.groups.algo.toLowerCase()
 
     // 5. If algorithm is a hash function recognized by the user
     //    agent, add the parsed token to result.
-    if (supportedHashes.includes(algorithm.toLowerCase())) {
+    if (supportedHashes.includes(algorithm)) {
       result.push(parsedToken.groups)
     }
   }
@@ -36655,6 +36880,82 @@ function parseMetadata (metadata) {
   }
 
   return result
+}
+
+/**
+ * @param {{ algo: 'sha256' | 'sha384' | 'sha512' }[]} metadataList
+ */
+function getStrongestMetadata (metadataList) {
+  // Let algorithm be the algo component of the first item in metadataList.
+  // Can be sha256
+  let algorithm = metadataList[0].algo
+  // If the algorithm is sha512, then it is the strongest
+  // and we can return immediately
+  if (algorithm[3] === '5') {
+    return algorithm
+  }
+
+  for (let i = 1; i < metadataList.length; ++i) {
+    const metadata = metadataList[i]
+    // If the algorithm is sha512, then it is the strongest
+    // and we can break the loop immediately
+    if (metadata.algo[3] === '5') {
+      algorithm = 'sha512'
+      break
+    // If the algorithm is sha384, then a potential sha256 or sha384 is ignored
+    } else if (algorithm[3] === '3') {
+      continue
+    // algorithm is sha256, check if algorithm is sha384 and if so, set it as
+    // the strongest
+    } else if (metadata.algo[3] === '3') {
+      algorithm = 'sha384'
+    }
+  }
+  return algorithm
+}
+
+function filterMetadataListByAlgorithm (metadataList, algorithm) {
+  if (metadataList.length === 1) {
+    return metadataList
+  }
+
+  let pos = 0
+  for (let i = 0; i < metadataList.length; ++i) {
+    if (metadataList[i].algo === algorithm) {
+      metadataList[pos++] = metadataList[i]
+    }
+  }
+
+  metadataList.length = pos
+
+  return metadataList
+}
+
+/**
+ * Compares two base64 strings, allowing for base64url
+ * in the second string.
+ *
+* @param {string} actualValue always base64
+ * @param {string} expectedValue base64 or base64url
+ * @returns {boolean}
+ */
+function compareBase64Mixed (actualValue, expectedValue) {
+  if (actualValue.length !== expectedValue.length) {
+    return false
+  }
+  for (let i = 0; i < actualValue.length; ++i) {
+    if (actualValue[i] !== expectedValue[i]) {
+      if (
+        (actualValue[i] === '+' && expectedValue[i] === '-') ||
+        (actualValue[i] === '/' && expectedValue[i] === '_')
+      ) {
+        continue
+      }
+      return false
+    }
+  }
+
+  return true
 }
 
 // https://w3c.github.io/webappsec-upgrade-insecure-requests/#upgrade-request
@@ -37072,7 +37373,8 @@ module.exports = {
   urlHasHttpsScheme,
   urlIsHttpHttpsScheme,
   readAllBytes,
-  normalizeMethodRecord
+  normalizeMethodRecord,
+  parseMetadata
 }
 
 
@@ -39159,12 +39461,17 @@ function parseLocation (statusCode, headers) {
 
 // https://tools.ietf.org/html/rfc7231#section-6.4.4
 function shouldRemoveHeader (header, removeContent, unknownOrigin) {
-  return (
-    (header.length === 4 && header.toString().toLowerCase() === 'host') ||
-    (removeContent && header.toString().toLowerCase().indexOf('content-') === 0) ||
-    (unknownOrigin && header.length === 13 && header.toString().toLowerCase() === 'authorization') ||
-    (unknownOrigin && header.length === 6 && header.toString().toLowerCase() === 'cookie')
-  )
+  if (header.length === 4) {
+    return util.headerNameToString(header) === 'host'
+  }
+  if (removeContent && util.headerNameToString(header).startsWith('content-')) {
+    return true
+  }
+  if (unknownOrigin && (header.length === 13 || header.length === 6 || header.length === 19)) {
+    const name = util.headerNameToString(header)
+    return name === 'authorization' || name === 'cookie' || name === 'proxy-authorization'
+  }
+  return false
 }
 
 // https://tools.ietf.org/html/rfc7231#section-6.4
@@ -44341,21 +44648,21 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.error = exports.info = exports.debug = exports.isDebugEnabled = void 0;
+exports.isDebugEnabled = isDebugEnabled;
+exports.debug = debug;
+exports.info = info;
+exports.error = error;
 const core = __importStar(__nccwpck_require__(2186));
 const LOG_HEADER = '[Workflow Telemetry]';
 function isDebugEnabled() {
     return core.isDebug();
 }
-exports.isDebugEnabled = isDebugEnabled;
 function debug(msg) {
     core.debug(LOG_HEADER + ' ' + msg);
 }
-exports.debug = debug;
 function info(msg) {
     core.info(LOG_HEADER + ' ' + msg);
 }
-exports.info = info;
 function error(msg) {
     if (msg instanceof String || typeof msg === 'string') {
         core.error(LOG_HEADER + ' ' + msg);
@@ -44365,7 +44672,6 @@ function error(msg) {
         core.error(msg);
     }
 }
-exports.error = error;
 
 
 /***/ }),
@@ -44479,7 +44785,7 @@ var __asyncValues = (this && this.__asyncValues) || function (o) {
     function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.parse = void 0;
+exports.parse = parse;
 const fs = __importStar(__nccwpck_require__(7147));
 const readline = __importStar(__nccwpck_require__(4521));
 const logger = __importStar(__nccwpck_require__(4636));
@@ -44513,8 +44819,8 @@ const SYS_PROCS_TO_BE_IGNORED = new Set([
     'whoami'
 ]);
 function parse(filePath, procEventParseOptions) {
-    var _a, e_1, _b, _c;
     return __awaiter(this, void 0, void 0, function* () {
+        var _a, e_1, _b, _c;
         const minDuration = (procEventParseOptions && procEventParseOptions.minDuration) || -1;
         const traceSystemProcesses = (procEventParseOptions && procEventParseOptions.traceSystemProcesses) ||
             false;
@@ -44618,7 +44924,6 @@ function parse(filePath, procEventParseOptions) {
         return completedCommands;
     });
 }
-exports.parse = parse;
 
 
 /***/ }),
@@ -44664,7 +44969,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.report = exports.finish = exports.start = void 0;
+exports.start = start;
+exports.finish = finish;
+exports.report = report;
 const child_process_1 = __nccwpck_require__(2081);
 const path_1 = __importDefault(__nccwpck_require__(1017));
 const core = __importStar(__nccwpck_require__(2186));
@@ -44719,8 +45026,8 @@ function getExtraProcessInfo(command) {
 }
 ///////////////////////////
 function start() {
-    var _a;
     return __awaiter(this, void 0, void 0, function* () {
+        var _a;
         logger.info(`Starting process tracer ...`);
         try {
             const procTracerBinaryName = yield getProcessTracerBinaryName();
@@ -44753,7 +45060,6 @@ function start() {
         }
     });
 }
-exports.start = start;
 function finish(currentJob) {
     return __awaiter(this, void 0, void 0, function* () {
         logger.info(`Finishing process tracer ...`);
@@ -44776,7 +45082,6 @@ function finish(currentJob) {
         }
     });
 }
-exports.finish = finish;
 function report(currentJob) {
     return __awaiter(this, void 0, void 0, function* () {
         logger.info(`Reporting process tracer result ...`);
@@ -44872,7 +45177,6 @@ function report(currentJob) {
         }
     });
 }
-exports.report = report;
 
 
 /***/ }),
@@ -44918,7 +45222,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.report = exports.finish = exports.start = void 0;
+exports.start = start;
+exports.finish = finish;
+exports.report = report;
 const child_process_1 = __nccwpck_require__(2081);
 const path_1 = __importDefault(__nccwpck_require__(1017));
 const axios_1 = __importDefault(__nccwpck_require__(8757));
@@ -45283,7 +45589,6 @@ function start() {
         }
     });
 }
-exports.start = start;
 function finish(currentJob) {
     return __awaiter(this, void 0, void 0, function* () {
         logger.info(`Finishing stat collector ...`);
@@ -45300,7 +45605,6 @@ function finish(currentJob) {
         }
     });
 }
-exports.finish = finish;
 function report(currentJob) {
     return __awaiter(this, void 0, void 0, function* () {
         logger.info(`Reporting stat collector result ...`);
@@ -45316,7 +45620,6 @@ function report(currentJob) {
         }
     });
 }
-exports.report = report;
 
 
 /***/ }),
@@ -45359,7 +45662,9 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.report = exports.finish = exports.start = void 0;
+exports.start = start;
+exports.finish = finish;
+exports.report = report;
 const logger = __importStar(__nccwpck_require__(4636));
 function generateTraceChartForSteps(job) {
     let chartContent = '';
@@ -45425,7 +45730,6 @@ function start() {
         }
     });
 }
-exports.start = start;
 function finish(currentJob) {
     return __awaiter(this, void 0, void 0, function* () {
         logger.info(`Finishing step tracer ...`);
@@ -45440,7 +45744,6 @@ function finish(currentJob) {
         }
     });
 }
-exports.finish = finish;
 function report(currentJob) {
     return __awaiter(this, void 0, void 0, function* () {
         logger.info(`Reporting step tracer result ...`);
@@ -45459,7 +45762,6 @@ function report(currentJob) {
         }
     });
 }
-exports.report = report;
 
 
 /***/ }),
@@ -45804,7 +46106,7 @@ Dicer.prototype._write = function (data, encoding, cb) {
   if (this._headerFirst && this._isPreamble) {
     if (!this._part) {
       this._part = new PartStream(this._partOpts)
-      if (this._events.preamble) { this.emit('preamble', this._part) } else { this._ignore() }
+      if (this.listenerCount('preamble') !== 0) { this.emit('preamble', this._part) } else { this._ignore() }
     }
     const r = this._hparser.push(data)
     if (!this._inHeader && r !== undefined && r < data.length) { data = data.slice(r) } else { return cb() }
@@ -45861,7 +46163,7 @@ Dicer.prototype._oninfo = function (isMatch, data, start, end) {
       }
     }
     if (this._dashes === 2) {
-      if ((start + i) < end && this._events.trailer) { this.emit('trailer', data.slice(start + i, end)) }
+      if ((start + i) < end && this.listenerCount('trailer') !== 0) { this.emit('trailer', data.slice(start + i, end)) }
       this.reset()
       this._finished = true
       // no more parts will be added
@@ -45879,7 +46181,13 @@ Dicer.prototype._oninfo = function (isMatch, data, start, end) {
     this._part._read = function (n) {
       self._unpause()
     }
-    if (this._isPreamble && this._events.preamble) { this.emit('preamble', this._part) } else if (this._isPreamble !== true && this._events.part) { this.emit('part', this._part) } else { this._ignore() }
+    if (this._isPreamble && this.listenerCount('preamble') !== 0) {
+      this.emit('preamble', this._part)
+    } else if (this._isPreamble !== true && this.listenerCount('part') !== 0) {
+      this.emit('part', this._part)
+    } else {
+      this._ignore()
+    }
     if (!this._isPreamble) { this._inHeader = true }
   }
   if (data && start < end && !this._ignoreData) {
@@ -46562,7 +46870,7 @@ function Multipart (boy, cfg) {
 
         ++nfiles
 
-        if (!boy._events.file) {
+        if (boy.listenerCount('file') === 0) {
           self.parser._ignore()
           return
         }
@@ -47091,7 +47399,7 @@ const decoders = {
     if (textDecoders.has(this.toString())) {
       try {
         return textDecoders.get(this).decode(data)
-      } catch (e) { }
+      } catch {}
     }
     return typeof data === 'string'
       ? data
@@ -47343,7 +47651,7 @@ module.exports = parseParams
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
 "use strict";
-// Axios v1.6.7 Copyright (c) 2024 Matt Zabriskie and contributors
+// Axios v1.7.4 Copyright (c) 2024 Matt Zabriskie and contributors
 
 
 const FormData$1 = __nccwpck_require__(4334);
@@ -47355,7 +47663,7 @@ const util = __nccwpck_require__(3837);
 const followRedirects = __nccwpck_require__(7707);
 const zlib = __nccwpck_require__(9796);
 const stream = __nccwpck_require__(2781);
-const EventEmitter = __nccwpck_require__(2361);
+const events = __nccwpck_require__(2361);
 
 function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
 
@@ -47367,7 +47675,6 @@ const util__default = /*#__PURE__*/_interopDefaultLegacy(util);
 const followRedirects__default = /*#__PURE__*/_interopDefaultLegacy(followRedirects);
 const zlib__default = /*#__PURE__*/_interopDefaultLegacy(zlib);
 const stream__default = /*#__PURE__*/_interopDefaultLegacy(stream);
-const EventEmitter__default = /*#__PURE__*/_interopDefaultLegacy(EventEmitter);
 
 function bind(fn, thisArg) {
   return function wrap() {
@@ -47581,6 +47888,8 @@ const isFormData = (thing) => {
  * @returns {boolean} True if value is a URLSearchParams object, otherwise false
  */
 const isURLSearchParams = kindOfTest('URLSearchParams');
+
+const [isReadableStream, isRequest, isResponse, isHeaders] = ['ReadableStream', 'Request', 'Response', 'Headers'].map(kindOfTest);
 
 /**
  * Trim excess whitespace off the beginning and end of a string
@@ -47970,8 +48279,7 @@ const toObjectSet = (arrayOrString, delimiter) => {
 const noop = () => {};
 
 const toFiniteNumber = (value, defaultValue) => {
-  value = +value;
-  return Number.isFinite(value) ? value : defaultValue;
+  return value != null && Number.isFinite(value = +value) ? value : defaultValue;
 };
 
 const ALPHA = 'abcdefghijklmnopqrstuvwxyz';
@@ -48041,6 +48349,36 @@ const isAsyncFn = kindOfTest('AsyncFunction');
 const isThenable = (thing) =>
   thing && (isObject(thing) || isFunction(thing)) && isFunction(thing.then) && isFunction(thing.catch);
 
+// original code
+// https://github.com/DigitalBrainJS/AxiosPromise/blob/16deab13710ec09779922131f3fa5954320f83ab/lib/utils.js#L11-L34
+
+const _setImmediate = ((setImmediateSupported, postMessageSupported) => {
+  if (setImmediateSupported) {
+    return setImmediate;
+  }
+
+  return postMessageSupported ? ((token, callbacks) => {
+    _global.addEventListener("message", ({source, data}) => {
+      if (source === _global && data === token) {
+        callbacks.length && callbacks.shift()();
+      }
+    }, false);
+
+    return (cb) => {
+      callbacks.push(cb);
+      _global.postMessage(token, "*");
+    }
+  })(`axios@${Math.random()}`, []) : (cb) => setTimeout(cb);
+})(
+  typeof setImmediate === 'function',
+  isFunction(_global.postMessage)
+);
+
+const asap = typeof queueMicrotask !== 'undefined' ?
+  queueMicrotask.bind(_global) : ( typeof process !== 'undefined' && process.nextTick || _setImmediate);
+
+// *********************
+
 const utils$1 = {
   isArray,
   isArrayBuffer,
@@ -48052,6 +48390,10 @@ const utils$1 = {
   isBoolean,
   isObject,
   isPlainObject,
+  isReadableStream,
+  isRequest,
+  isResponse,
+  isHeaders,
   isUndefined,
   isDate,
   isFile,
@@ -48092,7 +48434,9 @@ const utils$1 = {
   isSpecCompliantForm,
   toJSONObject,
   isAsyncFn,
-  isThenable
+  isThenable,
+  setImmediate: _setImmediate,
+  asap
 };
 
 /**
@@ -48641,11 +48985,14 @@ const hasStandardBrowserWebWorkerEnv = (() => {
   );
 })();
 
+const origin = hasBrowserEnv && window.location.href || 'http://localhost';
+
 const utils = /*#__PURE__*/Object.freeze({
   __proto__: null,
   hasBrowserEnv: hasBrowserEnv,
   hasStandardBrowserWebWorkerEnv: hasStandardBrowserWebWorkerEnv,
-  hasStandardBrowserEnv: hasStandardBrowserEnv
+  hasStandardBrowserEnv: hasStandardBrowserEnv,
+  origin: origin
 });
 
 const platform = {
@@ -48785,7 +49132,7 @@ const defaults = {
 
   transitional: transitionalDefaults,
 
-  adapter: ['xhr', 'http'],
+  adapter: ['xhr', 'http', 'fetch'],
 
   transformRequest: [function transformRequest(data, headers) {
     const contentType = headers.getContentType() || '';
@@ -48806,7 +49153,8 @@ const defaults = {
       utils$1.isBuffer(data) ||
       utils$1.isStream(data) ||
       utils$1.isFile(data) ||
-      utils$1.isBlob(data)
+      utils$1.isBlob(data) ||
+      utils$1.isReadableStream(data)
     ) {
       return data;
     }
@@ -48848,6 +49196,10 @@ const defaults = {
     const transitional = this.transitional || defaults.transitional;
     const forcedJSONParsing = transitional && transitional.forcedJSONParsing;
     const JSONRequested = this.responseType === 'json';
+
+    if (utils$1.isResponse(data) || utils$1.isReadableStream(data)) {
+      return data;
+    }
 
     if (data && utils$1.isString(data) && ((forcedJSONParsing && !this.responseType) || JSONRequested)) {
       const silentJSONParsing = transitional && transitional.silentJSONParsing;
@@ -49052,6 +49404,10 @@ class AxiosHeaders {
       setHeaders(header, valueOrRewrite);
     } else if(utils$1.isString(header) && (header = header.trim()) && !isValidHeaderName(header)) {
       setHeaders(parseHeaders(header), valueOrRewrite);
+    } else if (utils$1.isHeaders(header)) {
+      for (const [key, value] of header.entries()) {
+        setHeader(value, key, rewrite);
+      }
     } else {
       header != null && setHeader(valueOrRewrite, header, rewrite);
     }
@@ -49364,7 +49720,7 @@ function buildFullPath(baseURL, requestedURL) {
   return requestedURL;
 }
 
-const VERSION = "1.6.7";
+const VERSION = "1.7.4";
 
 function parseProtocol(url) {
   const match = /^([-+\w]{1,25})(:?\/\/|:)/.exec(url);
@@ -49419,88 +49775,6 @@ function fromDataURI(uri, asBlob, options) {
   throw new AxiosError('Unsupported protocol ' + protocol, AxiosError.ERR_NOT_SUPPORT);
 }
 
-/**
- * Throttle decorator
- * @param {Function} fn
- * @param {Number} freq
- * @return {Function}
- */
-function throttle(fn, freq) {
-  let timestamp = 0;
-  const threshold = 1000 / freq;
-  let timer = null;
-  return function throttled(force, args) {
-    const now = Date.now();
-    if (force || now - timestamp > threshold) {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      timestamp = now;
-      return fn.apply(null, args);
-    }
-    if (!timer) {
-      timer = setTimeout(() => {
-        timer = null;
-        timestamp = Date.now();
-        return fn.apply(null, args);
-      }, threshold - (now - timestamp));
-    }
-  };
-}
-
-/**
- * Calculate data maxRate
- * @param {Number} [samplesCount= 10]
- * @param {Number} [min= 1000]
- * @returns {Function}
- */
-function speedometer(samplesCount, min) {
-  samplesCount = samplesCount || 10;
-  const bytes = new Array(samplesCount);
-  const timestamps = new Array(samplesCount);
-  let head = 0;
-  let tail = 0;
-  let firstSampleTS;
-
-  min = min !== undefined ? min : 1000;
-
-  return function push(chunkLength) {
-    const now = Date.now();
-
-    const startedAt = timestamps[tail];
-
-    if (!firstSampleTS) {
-      firstSampleTS = now;
-    }
-
-    bytes[head] = chunkLength;
-    timestamps[head] = now;
-
-    let i = tail;
-    let bytesCount = 0;
-
-    while (i !== head) {
-      bytesCount += bytes[i++];
-      i = i % samplesCount;
-    }
-
-    head = (head + 1) % samplesCount;
-
-    if (head === tail) {
-      tail = (tail + 1) % samplesCount;
-    }
-
-    if (now - firstSampleTS < min) {
-      return;
-    }
-
-    const passed = startedAt && now - startedAt;
-
-    return passed ? Math.round(bytesCount * 1000 / passed) : undefined;
-  };
-}
-
 const kInternals = Symbol('internals');
 
 class AxiosTransformStream extends stream__default["default"].Transform{
@@ -49520,12 +49794,8 @@ class AxiosTransformStream extends stream__default["default"].Transform{
       readableHighWaterMark: options.chunkSize
     });
 
-    const self = this;
-
     const internals = this[kInternals] = {
-      length: options.length,
       timeWindow: options.timeWindow,
-      ticksRate: options.ticksRate,
       chunkSize: options.chunkSize,
       maxRate: options.maxRate,
       minChunkSize: options.minChunkSize,
@@ -49537,8 +49807,6 @@ class AxiosTransformStream extends stream__default["default"].Transform{
       onReadCallback: null
     };
 
-    const _speedometer = speedometer(internals.ticksRate * options.samplesCount, internals.timeWindow);
-
     this.on('newListener', event => {
       if (event === 'progress') {
         if (!internals.isCaptured) {
@@ -49546,38 +49814,6 @@ class AxiosTransformStream extends stream__default["default"].Transform{
         }
       }
     });
-
-    let bytesNotified = 0;
-
-    internals.updateProgress = throttle(function throttledHandler() {
-      const totalBytes = internals.length;
-      const bytesTransferred = internals.bytesSeen;
-      const progressBytes = bytesTransferred - bytesNotified;
-      if (!progressBytes || self.destroyed) return;
-
-      const rate = _speedometer(progressBytes);
-
-      bytesNotified = bytesTransferred;
-
-      process.nextTick(() => {
-        self.emit('progress', {
-          'loaded': bytesTransferred,
-          'total': totalBytes,
-          'progress': totalBytes ? (bytesTransferred / totalBytes) : undefined,
-          'bytes': progressBytes,
-          'rate': rate ? rate : undefined,
-          'estimated': rate && totalBytes && bytesTransferred <= totalBytes ?
-            (totalBytes - bytesTransferred) / rate : undefined
-        });
-      });
-    }, internals.ticksRate);
-
-    const onFinish = () => {
-      internals.updateProgress(true);
-    };
-
-    this.once('end', onFinish);
-    this.once('error', onFinish);
   }
 
   _read(size) {
@@ -49591,7 +49827,6 @@ class AxiosTransformStream extends stream__default["default"].Transform{
   }
 
   _transform(chunk, encoding, callback) {
-    const self = this;
     const internals = this[kInternals];
     const maxRate = internals.maxRate;
 
@@ -49603,16 +49838,14 @@ class AxiosTransformStream extends stream__default["default"].Transform{
     const bytesThreshold = (maxRate / divider);
     const minChunkSize = internals.minChunkSize !== false ? Math.max(internals.minChunkSize, bytesThreshold * 0.01) : 0;
 
-    function pushChunk(_chunk, _callback) {
+    const pushChunk = (_chunk, _callback) => {
       const bytes = Buffer.byteLength(_chunk);
       internals.bytesSeen += bytes;
       internals.bytes += bytes;
 
-      if (internals.isCaptured) {
-        internals.updateProgress();
-      }
+      internals.isCaptured && this.emit('progress', internals.bytesSeen);
 
-      if (self.push(_chunk)) {
+      if (this.push(_chunk)) {
         process.nextTick(_callback);
       } else {
         internals.onReadCallback = () => {
@@ -49620,7 +49853,7 @@ class AxiosTransformStream extends stream__default["default"].Transform{
           process.nextTick(_callback);
         };
       }
-    }
+    };
 
     const transformChunk = (_chunk, _callback) => {
       const chunkSize = Buffer.byteLength(_chunk);
@@ -49676,11 +49909,6 @@ class AxiosTransformStream extends stream__default["default"].Transform{
         callback(null);
       }
     });
-  }
-
-  setLength(length) {
-    this[kInternals].length = +length;
-    return this;
   }
 }
 
@@ -49849,6 +50077,142 @@ const callbackify = (fn, reducer) => {
 
 const callbackify$1 = callbackify;
 
+/**
+ * Calculate data maxRate
+ * @param {Number} [samplesCount= 10]
+ * @param {Number} [min= 1000]
+ * @returns {Function}
+ */
+function speedometer(samplesCount, min) {
+  samplesCount = samplesCount || 10;
+  const bytes = new Array(samplesCount);
+  const timestamps = new Array(samplesCount);
+  let head = 0;
+  let tail = 0;
+  let firstSampleTS;
+
+  min = min !== undefined ? min : 1000;
+
+  return function push(chunkLength) {
+    const now = Date.now();
+
+    const startedAt = timestamps[tail];
+
+    if (!firstSampleTS) {
+      firstSampleTS = now;
+    }
+
+    bytes[head] = chunkLength;
+    timestamps[head] = now;
+
+    let i = tail;
+    let bytesCount = 0;
+
+    while (i !== head) {
+      bytesCount += bytes[i++];
+      i = i % samplesCount;
+    }
+
+    head = (head + 1) % samplesCount;
+
+    if (head === tail) {
+      tail = (tail + 1) % samplesCount;
+    }
+
+    if (now - firstSampleTS < min) {
+      return;
+    }
+
+    const passed = startedAt && now - startedAt;
+
+    return passed ? Math.round(bytesCount * 1000 / passed) : undefined;
+  };
+}
+
+/**
+ * Throttle decorator
+ * @param {Function} fn
+ * @param {Number} freq
+ * @return {Function}
+ */
+function throttle(fn, freq) {
+  let timestamp = 0;
+  let threshold = 1000 / freq;
+  let lastArgs;
+  let timer;
+
+  const invoke = (args, now = Date.now()) => {
+    timestamp = now;
+    lastArgs = null;
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    fn.apply(null, args);
+  };
+
+  const throttled = (...args) => {
+    const now = Date.now();
+    const passed = now - timestamp;
+    if ( passed >= threshold) {
+      invoke(args, now);
+    } else {
+      lastArgs = args;
+      if (!timer) {
+        timer = setTimeout(() => {
+          timer = null;
+          invoke(lastArgs);
+        }, threshold - passed);
+      }
+    }
+  };
+
+  const flush = () => lastArgs && invoke(lastArgs);
+
+  return [throttled, flush];
+}
+
+const progressEventReducer = (listener, isDownloadStream, freq = 3) => {
+  let bytesNotified = 0;
+  const _speedometer = speedometer(50, 250);
+
+  return throttle(e => {
+    const loaded = e.loaded;
+    const total = e.lengthComputable ? e.total : undefined;
+    const progressBytes = loaded - bytesNotified;
+    const rate = _speedometer(progressBytes);
+    const inRange = loaded <= total;
+
+    bytesNotified = loaded;
+
+    const data = {
+      loaded,
+      total,
+      progress: total ? (loaded / total) : undefined,
+      bytes: progressBytes,
+      rate: rate ? rate : undefined,
+      estimated: rate && total && inRange ? (total - loaded) / rate : undefined,
+      event: e,
+      lengthComputable: total != null,
+      [isDownloadStream ? 'download' : 'upload']: true
+    };
+
+    listener(data);
+  }, freq);
+};
+
+const progressEventDecorator = (total, throttled) => {
+  const lengthComputable = total != null;
+
+  return [(loaded) => throttled[0]({
+    lengthComputable,
+    total,
+    loaded
+  }), throttled[1]];
+};
+
+const asyncDecorator = (fn) => (...args) => utils$1.asap(() => fn(...args));
+
 const zlibOptions = {
   flush: zlib__default["default"].constants.Z_SYNC_FLUSH,
   finishFlush: zlib__default["default"].constants.Z_SYNC_FLUSH
@@ -49868,6 +50232,14 @@ const isHttps = /https:?/;
 const supportedProtocols = platform.protocols.map(protocol => {
   return protocol + ':';
 });
+
+const flushOnFinish = (stream, [throttled, flush]) => {
+  stream
+    .on('end', flush)
+    .on('error', flush);
+
+  return throttled;
+};
 
 /**
  * If the proxy or config beforeRedirects functions are defined, call them with the options
@@ -50007,7 +50379,7 @@ const httpAdapter = isHttpAdapterSupported && function httpAdapter(config) {
     }
 
     // temporary internal emitter until the AxiosRequest class will be implemented
-    const emitter = new EventEmitter__default["default"]();
+    const emitter = new events.EventEmitter();
 
     const onFinished = () => {
       if (config.cancelToken) {
@@ -50044,7 +50416,7 @@ const httpAdapter = isHttpAdapterSupported && function httpAdapter(config) {
 
     // Parse url
     const fullPath = buildFullPath(config.baseURL, config.url);
-    const parsed = new URL(fullPath, 'http://localhost');
+    const parsed = new URL(fullPath, utils$1.hasBrowserEnv ? platform.origin : undefined);
     const protocol = parsed.protocol || supportedProtocols[0];
 
     if (protocol === 'data:') {
@@ -50102,8 +50474,7 @@ const httpAdapter = isHttpAdapterSupported && function httpAdapter(config) {
     // Only set header if it hasn't been set in config
     headers.set('User-Agent', 'axios/' + VERSION, false);
 
-    const onDownloadProgress = config.onDownloadProgress;
-    const onUploadProgress = config.onUploadProgress;
+    const {onUploadProgress, onDownloadProgress} = config;
     const maxRate = config.maxRate;
     let maxUploadRate = undefined;
     let maxDownloadRate = undefined;
@@ -50174,15 +50545,16 @@ const httpAdapter = isHttpAdapterSupported && function httpAdapter(config) {
       }
 
       data = stream__default["default"].pipeline([data, new AxiosTransformStream$1({
-        length: contentLength,
         maxRate: utils$1.toFiniteNumber(maxUploadRate)
       })], utils$1.noop);
 
-      onUploadProgress && data.on('progress', progress => {
-        onUploadProgress(Object.assign(progress, {
-          upload: true
-        }));
-      });
+      onUploadProgress && data.on('progress', flushOnFinish(
+        data,
+        progressEventDecorator(
+          contentLength,
+          progressEventReducer(asyncDecorator(onUploadProgress), false, 3)
+        )
+      ));
     }
 
     // HTTP basic authentication
@@ -50281,17 +50653,18 @@ const httpAdapter = isHttpAdapterSupported && function httpAdapter(config) {
 
       const responseLength = +res.headers['content-length'];
 
-      if (onDownloadProgress) {
+      if (onDownloadProgress || maxDownloadRate) {
         const transformStream = new AxiosTransformStream$1({
-          length: utils$1.toFiniteNumber(responseLength),
           maxRate: utils$1.toFiniteNumber(maxDownloadRate)
         });
 
-        onDownloadProgress && transformStream.on('progress', progress => {
-          onDownloadProgress(Object.assign(progress, {
-            download: true
-          }));
-        });
+        onDownloadProgress && transformStream.on('progress', flushOnFinish(
+          transformStream,
+          progressEventDecorator(
+            responseLength,
+            progressEventReducer(asyncDecorator(onDownloadProgress), true, 3)
+          )
+        ));
 
         streams.push(transformStream);
       }
@@ -50504,45 +50877,6 @@ const httpAdapter = isHttpAdapterSupported && function httpAdapter(config) {
   });
 };
 
-const cookies = platform.hasStandardBrowserEnv ?
-
-  // Standard browser envs support document.cookie
-  {
-    write(name, value, expires, path, domain, secure) {
-      const cookie = [name + '=' + encodeURIComponent(value)];
-
-      utils$1.isNumber(expires) && cookie.push('expires=' + new Date(expires).toGMTString());
-
-      utils$1.isString(path) && cookie.push('path=' + path);
-
-      utils$1.isString(domain) && cookie.push('domain=' + domain);
-
-      secure === true && cookie.push('secure');
-
-      document.cookie = cookie.join('; ');
-    },
-
-    read(name) {
-      const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
-      return (match ? decodeURIComponent(match[3]) : null);
-    },
-
-    remove(name) {
-      this.write(name, '', Date.now() - 86400000);
-    }
-  }
-
-  :
-
-  // Non-standard browser env (web workers, react-native) lack needed support.
-  {
-    write() {},
-    read() {
-      return null;
-    },
-    remove() {}
-  };
-
 const isURLSameOrigin = platform.hasStandardBrowserEnv ?
 
 // Standard browser envs have full support of the APIs needed to test
@@ -50606,80 +50940,222 @@ const isURLSameOrigin = platform.hasStandardBrowserEnv ?
     };
   })();
 
-function progressEventReducer(listener, isDownloadStream) {
-  let bytesNotified = 0;
-  const _speedometer = speedometer(50, 250);
+const cookies = platform.hasStandardBrowserEnv ?
 
-  return e => {
-    const loaded = e.loaded;
-    const total = e.lengthComputable ? e.total : undefined;
-    const progressBytes = loaded - bytesNotified;
-    const rate = _speedometer(progressBytes);
-    const inRange = loaded <= total;
+  // Standard browser envs support document.cookie
+  {
+    write(name, value, expires, path, domain, secure) {
+      const cookie = [name + '=' + encodeURIComponent(value)];
 
-    bytesNotified = loaded;
+      utils$1.isNumber(expires) && cookie.push('expires=' + new Date(expires).toGMTString());
 
-    const data = {
-      loaded,
-      total,
-      progress: total ? (loaded / total) : undefined,
-      bytes: progressBytes,
-      rate: rate ? rate : undefined,
-      estimated: rate && total && inRange ? (total - loaded) / rate : undefined,
-      event: e
-    };
+      utils$1.isString(path) && cookie.push('path=' + path);
 
-    data[isDownloadStream ? 'download' : 'upload'] = true;
+      utils$1.isString(domain) && cookie.push('domain=' + domain);
 
-    listener(data);
+      secure === true && cookie.push('secure');
+
+      document.cookie = cookie.join('; ');
+    },
+
+    read(name) {
+      const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
+      return (match ? decodeURIComponent(match[3]) : null);
+    },
+
+    remove(name) {
+      this.write(name, '', Date.now() - 86400000);
+    }
+  }
+
+  :
+
+  // Non-standard browser env (web workers, react-native) lack needed support.
+  {
+    write() {},
+    read() {
+      return null;
+    },
+    remove() {}
   };
+
+const headersToObject = (thing) => thing instanceof AxiosHeaders$1 ? { ...thing } : thing;
+
+/**
+ * Config-specific merge-function which creates a new config-object
+ * by merging two configuration objects together.
+ *
+ * @param {Object} config1
+ * @param {Object} config2
+ *
+ * @returns {Object} New object resulting from merging config2 to config1
+ */
+function mergeConfig(config1, config2) {
+  // eslint-disable-next-line no-param-reassign
+  config2 = config2 || {};
+  const config = {};
+
+  function getMergedValue(target, source, caseless) {
+    if (utils$1.isPlainObject(target) && utils$1.isPlainObject(source)) {
+      return utils$1.merge.call({caseless}, target, source);
+    } else if (utils$1.isPlainObject(source)) {
+      return utils$1.merge({}, source);
+    } else if (utils$1.isArray(source)) {
+      return source.slice();
+    }
+    return source;
+  }
+
+  // eslint-disable-next-line consistent-return
+  function mergeDeepProperties(a, b, caseless) {
+    if (!utils$1.isUndefined(b)) {
+      return getMergedValue(a, b, caseless);
+    } else if (!utils$1.isUndefined(a)) {
+      return getMergedValue(undefined, a, caseless);
+    }
+  }
+
+  // eslint-disable-next-line consistent-return
+  function valueFromConfig2(a, b) {
+    if (!utils$1.isUndefined(b)) {
+      return getMergedValue(undefined, b);
+    }
+  }
+
+  // eslint-disable-next-line consistent-return
+  function defaultToConfig2(a, b) {
+    if (!utils$1.isUndefined(b)) {
+      return getMergedValue(undefined, b);
+    } else if (!utils$1.isUndefined(a)) {
+      return getMergedValue(undefined, a);
+    }
+  }
+
+  // eslint-disable-next-line consistent-return
+  function mergeDirectKeys(a, b, prop) {
+    if (prop in config2) {
+      return getMergedValue(a, b);
+    } else if (prop in config1) {
+      return getMergedValue(undefined, a);
+    }
+  }
+
+  const mergeMap = {
+    url: valueFromConfig2,
+    method: valueFromConfig2,
+    data: valueFromConfig2,
+    baseURL: defaultToConfig2,
+    transformRequest: defaultToConfig2,
+    transformResponse: defaultToConfig2,
+    paramsSerializer: defaultToConfig2,
+    timeout: defaultToConfig2,
+    timeoutMessage: defaultToConfig2,
+    withCredentials: defaultToConfig2,
+    withXSRFToken: defaultToConfig2,
+    adapter: defaultToConfig2,
+    responseType: defaultToConfig2,
+    xsrfCookieName: defaultToConfig2,
+    xsrfHeaderName: defaultToConfig2,
+    onUploadProgress: defaultToConfig2,
+    onDownloadProgress: defaultToConfig2,
+    decompress: defaultToConfig2,
+    maxContentLength: defaultToConfig2,
+    maxBodyLength: defaultToConfig2,
+    beforeRedirect: defaultToConfig2,
+    transport: defaultToConfig2,
+    httpAgent: defaultToConfig2,
+    httpsAgent: defaultToConfig2,
+    cancelToken: defaultToConfig2,
+    socketPath: defaultToConfig2,
+    responseEncoding: defaultToConfig2,
+    validateStatus: mergeDirectKeys,
+    headers: (a, b) => mergeDeepProperties(headersToObject(a), headersToObject(b), true)
+  };
+
+  utils$1.forEach(Object.keys(Object.assign({}, config1, config2)), function computeConfigValue(prop) {
+    const merge = mergeMap[prop] || mergeDeepProperties;
+    const configValue = merge(config1[prop], config2[prop], prop);
+    (utils$1.isUndefined(configValue) && merge !== mergeDirectKeys) || (config[prop] = configValue);
+  });
+
+  return config;
 }
+
+const resolveConfig = (config) => {
+  const newConfig = mergeConfig({}, config);
+
+  let {data, withXSRFToken, xsrfHeaderName, xsrfCookieName, headers, auth} = newConfig;
+
+  newConfig.headers = headers = AxiosHeaders$1.from(headers);
+
+  newConfig.url = buildURL(buildFullPath(newConfig.baseURL, newConfig.url), config.params, config.paramsSerializer);
+
+  // HTTP basic authentication
+  if (auth) {
+    headers.set('Authorization', 'Basic ' +
+      btoa((auth.username || '') + ':' + (auth.password ? unescape(encodeURIComponent(auth.password)) : ''))
+    );
+  }
+
+  let contentType;
+
+  if (utils$1.isFormData(data)) {
+    if (platform.hasStandardBrowserEnv || platform.hasStandardBrowserWebWorkerEnv) {
+      headers.setContentType(undefined); // Let the browser set it
+    } else if ((contentType = headers.getContentType()) !== false) {
+      // fix semicolon duplication issue for ReactNative FormData implementation
+      const [type, ...tokens] = contentType ? contentType.split(';').map(token => token.trim()).filter(Boolean) : [];
+      headers.setContentType([type || 'multipart/form-data', ...tokens].join('; '));
+    }
+  }
+
+  // Add xsrf header
+  // This is only done if running in a standard browser environment.
+  // Specifically not if we're in a web worker, or react-native.
+
+  if (platform.hasStandardBrowserEnv) {
+    withXSRFToken && utils$1.isFunction(withXSRFToken) && (withXSRFToken = withXSRFToken(newConfig));
+
+    if (withXSRFToken || (withXSRFToken !== false && isURLSameOrigin(newConfig.url))) {
+      // Add xsrf header
+      const xsrfValue = xsrfHeaderName && xsrfCookieName && cookies.read(xsrfCookieName);
+
+      if (xsrfValue) {
+        headers.set(xsrfHeaderName, xsrfValue);
+      }
+    }
+  }
+
+  return newConfig;
+};
 
 const isXHRAdapterSupported = typeof XMLHttpRequest !== 'undefined';
 
 const xhrAdapter = isXHRAdapterSupported && function (config) {
   return new Promise(function dispatchXhrRequest(resolve, reject) {
-    let requestData = config.data;
-    const requestHeaders = AxiosHeaders$1.from(config.headers).normalize();
-    let {responseType, withXSRFToken} = config;
+    const _config = resolveConfig(config);
+    let requestData = _config.data;
+    const requestHeaders = AxiosHeaders$1.from(_config.headers).normalize();
+    let {responseType, onUploadProgress, onDownloadProgress} = _config;
     let onCanceled;
+    let uploadThrottled, downloadThrottled;
+    let flushUpload, flushDownload;
+
     function done() {
-      if (config.cancelToken) {
-        config.cancelToken.unsubscribe(onCanceled);
-      }
+      flushUpload && flushUpload(); // flush events
+      flushDownload && flushDownload(); // flush events
 
-      if (config.signal) {
-        config.signal.removeEventListener('abort', onCanceled);
-      }
-    }
+      _config.cancelToken && _config.cancelToken.unsubscribe(onCanceled);
 
-    let contentType;
-
-    if (utils$1.isFormData(requestData)) {
-      if (platform.hasStandardBrowserEnv || platform.hasStandardBrowserWebWorkerEnv) {
-        requestHeaders.setContentType(false); // Let the browser set it
-      } else if ((contentType = requestHeaders.getContentType()) !== false) {
-        // fix semicolon duplication issue for ReactNative FormData implementation
-        const [type, ...tokens] = contentType ? contentType.split(';').map(token => token.trim()).filter(Boolean) : [];
-        requestHeaders.setContentType([type || 'multipart/form-data', ...tokens].join('; '));
-      }
+      _config.signal && _config.signal.removeEventListener('abort', onCanceled);
     }
 
     let request = new XMLHttpRequest();
 
-    // HTTP basic authentication
-    if (config.auth) {
-      const username = config.auth.username || '';
-      const password = config.auth.password ? unescape(encodeURIComponent(config.auth.password)) : '';
-      requestHeaders.set('Authorization', 'Basic ' + btoa(username + ':' + password));
-    }
-
-    const fullPath = buildFullPath(config.baseURL, config.url);
-
-    request.open(config.method.toUpperCase(), buildURL(fullPath, config.params, config.paramsSerializer), true);
+    request.open(_config.method.toUpperCase(), _config.url, true);
 
     // Set the request timeout in MS
-    request.timeout = config.timeout;
+    request.timeout = _config.timeout;
 
     function onloadend() {
       if (!request) {
@@ -50759,10 +51235,10 @@ const xhrAdapter = isXHRAdapterSupported && function (config) {
 
     // Handle timeout
     request.ontimeout = function handleTimeout() {
-      let timeoutErrorMessage = config.timeout ? 'timeout of ' + config.timeout + 'ms exceeded' : 'timeout exceeded';
-      const transitional = config.transitional || transitionalDefaults;
-      if (config.timeoutErrorMessage) {
-        timeoutErrorMessage = config.timeoutErrorMessage;
+      let timeoutErrorMessage = _config.timeout ? 'timeout of ' + _config.timeout + 'ms exceeded' : 'timeout exceeded';
+      const transitional = _config.transitional || transitionalDefaults;
+      if (_config.timeoutErrorMessage) {
+        timeoutErrorMessage = _config.timeoutErrorMessage;
       }
       reject(new AxiosError(
         timeoutErrorMessage,
@@ -50773,22 +51249,6 @@ const xhrAdapter = isXHRAdapterSupported && function (config) {
       // Clean up request
       request = null;
     };
-
-    // Add xsrf header
-    // This is only done if running in a standard browser environment.
-    // Specifically not if we're in a web worker, or react-native.
-    if(platform.hasStandardBrowserEnv) {
-      withXSRFToken && utils$1.isFunction(withXSRFToken) && (withXSRFToken = withXSRFToken(config));
-
-      if (withXSRFToken || (withXSRFToken !== false && isURLSameOrigin(fullPath))) {
-        // Add xsrf header
-        const xsrfValue = config.xsrfHeaderName && config.xsrfCookieName && cookies.read(config.xsrfCookieName);
-
-        if (xsrfValue) {
-          requestHeaders.set(config.xsrfHeaderName, xsrfValue);
-        }
-      }
-    }
 
     // Remove Content-Type if data is undefined
     requestData === undefined && requestHeaders.setContentType(null);
@@ -50801,26 +51261,31 @@ const xhrAdapter = isXHRAdapterSupported && function (config) {
     }
 
     // Add withCredentials to request if needed
-    if (!utils$1.isUndefined(config.withCredentials)) {
-      request.withCredentials = !!config.withCredentials;
+    if (!utils$1.isUndefined(_config.withCredentials)) {
+      request.withCredentials = !!_config.withCredentials;
     }
 
     // Add responseType to request if needed
     if (responseType && responseType !== 'json') {
-      request.responseType = config.responseType;
+      request.responseType = _config.responseType;
     }
 
     // Handle progress if needed
-    if (typeof config.onDownloadProgress === 'function') {
-      request.addEventListener('progress', progressEventReducer(config.onDownloadProgress, true));
+    if (onDownloadProgress) {
+      ([downloadThrottled, flushDownload] = progressEventReducer(onDownloadProgress, true));
+      request.addEventListener('progress', downloadThrottled);
     }
 
     // Not all browsers support upload events
-    if (typeof config.onUploadProgress === 'function' && request.upload) {
-      request.upload.addEventListener('progress', progressEventReducer(config.onUploadProgress));
+    if (onUploadProgress && request.upload) {
+      ([uploadThrottled, flushUpload] = progressEventReducer(onUploadProgress));
+
+      request.upload.addEventListener('progress', uploadThrottled);
+
+      request.upload.addEventListener('loadend', flushUpload);
     }
 
-    if (config.cancelToken || config.signal) {
+    if (_config.cancelToken || _config.signal) {
       // Handle cancellation
       // eslint-disable-next-line func-names
       onCanceled = cancel => {
@@ -50832,13 +51297,13 @@ const xhrAdapter = isXHRAdapterSupported && function (config) {
         request = null;
       };
 
-      config.cancelToken && config.cancelToken.subscribe(onCanceled);
-      if (config.signal) {
-        config.signal.aborted ? onCanceled() : config.signal.addEventListener('abort', onCanceled);
+      _config.cancelToken && _config.cancelToken.subscribe(onCanceled);
+      if (_config.signal) {
+        _config.signal.aborted ? onCanceled() : _config.signal.addEventListener('abort', onCanceled);
       }
     }
 
-    const protocol = parseProtocol(fullPath);
+    const protocol = parseProtocol(_config.url);
 
     if (protocol && platform.protocols.indexOf(protocol) === -1) {
       reject(new AxiosError('Unsupported protocol ' + protocol + ':', AxiosError.ERR_BAD_REQUEST, config));
@@ -50851,9 +51316,339 @@ const xhrAdapter = isXHRAdapterSupported && function (config) {
   });
 };
 
+const composeSignals = (signals, timeout) => {
+  let controller = new AbortController();
+
+  let aborted;
+
+  const onabort = function (cancel) {
+    if (!aborted) {
+      aborted = true;
+      unsubscribe();
+      const err = cancel instanceof Error ? cancel : this.reason;
+      controller.abort(err instanceof AxiosError ? err : new CanceledError(err instanceof Error ? err.message : err));
+    }
+  };
+
+  let timer = timeout && setTimeout(() => {
+    onabort(new AxiosError(`timeout ${timeout} of ms exceeded`, AxiosError.ETIMEDOUT));
+  }, timeout);
+
+  const unsubscribe = () => {
+    if (signals) {
+      timer && clearTimeout(timer);
+      timer = null;
+      signals.forEach(signal => {
+        signal &&
+        (signal.removeEventListener ? signal.removeEventListener('abort', onabort) : signal.unsubscribe(onabort));
+      });
+      signals = null;
+    }
+  };
+
+  signals.forEach((signal) => signal && signal.addEventListener && signal.addEventListener('abort', onabort));
+
+  const {signal} = controller;
+
+  signal.unsubscribe = unsubscribe;
+
+  return [signal, () => {
+    timer && clearTimeout(timer);
+    timer = null;
+  }];
+};
+
+const composeSignals$1 = composeSignals;
+
+const streamChunk = function* (chunk, chunkSize) {
+  let len = chunk.byteLength;
+
+  if (!chunkSize || len < chunkSize) {
+    yield chunk;
+    return;
+  }
+
+  let pos = 0;
+  let end;
+
+  while (pos < len) {
+    end = pos + chunkSize;
+    yield chunk.slice(pos, end);
+    pos = end;
+  }
+};
+
+const readBytes = async function* (iterable, chunkSize, encode) {
+  for await (const chunk of iterable) {
+    yield* streamChunk(ArrayBuffer.isView(chunk) ? chunk : (await encode(String(chunk))), chunkSize);
+  }
+};
+
+const trackStream = (stream, chunkSize, onProgress, onFinish, encode) => {
+  const iterator = readBytes(stream, chunkSize, encode);
+
+  let bytes = 0;
+  let done;
+  let _onFinish = (e) => {
+    if (!done) {
+      done = true;
+      onFinish && onFinish(e);
+    }
+  };
+
+  return new ReadableStream({
+    async pull(controller) {
+      try {
+        const {done, value} = await iterator.next();
+
+        if (done) {
+         _onFinish();
+          controller.close();
+          return;
+        }
+
+        let len = value.byteLength;
+        if (onProgress) {
+          let loadedBytes = bytes += len;
+          onProgress(loadedBytes);
+        }
+        controller.enqueue(new Uint8Array(value));
+      } catch (err) {
+        _onFinish(err);
+        throw err;
+      }
+    },
+    cancel(reason) {
+      _onFinish(reason);
+      return iterator.return();
+    }
+  }, {
+    highWaterMark: 2
+  })
+};
+
+const isFetchSupported = typeof fetch === 'function' && typeof Request === 'function' && typeof Response === 'function';
+const isReadableStreamSupported = isFetchSupported && typeof ReadableStream === 'function';
+
+// used only inside the fetch adapter
+const encodeText = isFetchSupported && (typeof TextEncoder === 'function' ?
+    ((encoder) => (str) => encoder.encode(str))(new TextEncoder()) :
+    async (str) => new Uint8Array(await new Response(str).arrayBuffer())
+);
+
+const test = (fn, ...args) => {
+  try {
+    return !!fn(...args);
+  } catch (e) {
+    return false
+  }
+};
+
+const supportsRequestStream = isReadableStreamSupported && test(() => {
+  let duplexAccessed = false;
+
+  const hasContentType = new Request(platform.origin, {
+    body: new ReadableStream(),
+    method: 'POST',
+    get duplex() {
+      duplexAccessed = true;
+      return 'half';
+    },
+  }).headers.has('Content-Type');
+
+  return duplexAccessed && !hasContentType;
+});
+
+const DEFAULT_CHUNK_SIZE = 64 * 1024;
+
+const supportsResponseStream = isReadableStreamSupported &&
+  test(() => utils$1.isReadableStream(new Response('').body));
+
+
+const resolvers = {
+  stream: supportsResponseStream && ((res) => res.body)
+};
+
+isFetchSupported && (((res) => {
+  ['text', 'arrayBuffer', 'blob', 'formData', 'stream'].forEach(type => {
+    !resolvers[type] && (resolvers[type] = utils$1.isFunction(res[type]) ? (res) => res[type]() :
+      (_, config) => {
+        throw new AxiosError(`Response type '${type}' is not supported`, AxiosError.ERR_NOT_SUPPORT, config);
+      });
+  });
+})(new Response));
+
+const getBodyLength = async (body) => {
+  if (body == null) {
+    return 0;
+  }
+
+  if(utils$1.isBlob(body)) {
+    return body.size;
+  }
+
+  if(utils$1.isSpecCompliantForm(body)) {
+    return (await new Request(body).arrayBuffer()).byteLength;
+  }
+
+  if(utils$1.isArrayBufferView(body) || utils$1.isArrayBuffer(body)) {
+    return body.byteLength;
+  }
+
+  if(utils$1.isURLSearchParams(body)) {
+    body = body + '';
+  }
+
+  if(utils$1.isString(body)) {
+    return (await encodeText(body)).byteLength;
+  }
+};
+
+const resolveBodyLength = async (headers, body) => {
+  const length = utils$1.toFiniteNumber(headers.getContentLength());
+
+  return length == null ? getBodyLength(body) : length;
+};
+
+const fetchAdapter = isFetchSupported && (async (config) => {
+  let {
+    url,
+    method,
+    data,
+    signal,
+    cancelToken,
+    timeout,
+    onDownloadProgress,
+    onUploadProgress,
+    responseType,
+    headers,
+    withCredentials = 'same-origin',
+    fetchOptions
+  } = resolveConfig(config);
+
+  responseType = responseType ? (responseType + '').toLowerCase() : 'text';
+
+  let [composedSignal, stopTimeout] = (signal || cancelToken || timeout) ?
+    composeSignals$1([signal, cancelToken], timeout) : [];
+
+  let finished, request;
+
+  const onFinish = () => {
+    !finished && setTimeout(() => {
+      composedSignal && composedSignal.unsubscribe();
+    });
+
+    finished = true;
+  };
+
+  let requestContentLength;
+
+  try {
+    if (
+      onUploadProgress && supportsRequestStream && method !== 'get' && method !== 'head' &&
+      (requestContentLength = await resolveBodyLength(headers, data)) !== 0
+    ) {
+      let _request = new Request(url, {
+        method: 'POST',
+        body: data,
+        duplex: "half"
+      });
+
+      let contentTypeHeader;
+
+      if (utils$1.isFormData(data) && (contentTypeHeader = _request.headers.get('content-type'))) {
+        headers.setContentType(contentTypeHeader);
+      }
+
+      if (_request.body) {
+        const [onProgress, flush] = progressEventDecorator(
+          requestContentLength,
+          progressEventReducer(asyncDecorator(onUploadProgress))
+        );
+
+        data = trackStream(_request.body, DEFAULT_CHUNK_SIZE, onProgress, flush, encodeText);
+      }
+    }
+
+    if (!utils$1.isString(withCredentials)) {
+      withCredentials = withCredentials ? 'include' : 'omit';
+    }
+
+    request = new Request(url, {
+      ...fetchOptions,
+      signal: composedSignal,
+      method: method.toUpperCase(),
+      headers: headers.normalize().toJSON(),
+      body: data,
+      duplex: "half",
+      credentials: withCredentials
+    });
+
+    let response = await fetch(request);
+
+    const isStreamResponse = supportsResponseStream && (responseType === 'stream' || responseType === 'response');
+
+    if (supportsResponseStream && (onDownloadProgress || isStreamResponse)) {
+      const options = {};
+
+      ['status', 'statusText', 'headers'].forEach(prop => {
+        options[prop] = response[prop];
+      });
+
+      const responseContentLength = utils$1.toFiniteNumber(response.headers.get('content-length'));
+
+      const [onProgress, flush] = onDownloadProgress && progressEventDecorator(
+        responseContentLength,
+        progressEventReducer(asyncDecorator(onDownloadProgress), true)
+      ) || [];
+
+      response = new Response(
+        trackStream(response.body, DEFAULT_CHUNK_SIZE, onProgress, () => {
+          flush && flush();
+          isStreamResponse && onFinish();
+        }, encodeText),
+        options
+      );
+    }
+
+    responseType = responseType || 'text';
+
+    let responseData = await resolvers[utils$1.findKey(resolvers, responseType) || 'text'](response, config);
+
+    !isStreamResponse && onFinish();
+
+    stopTimeout && stopTimeout();
+
+    return await new Promise((resolve, reject) => {
+      settle(resolve, reject, {
+        data: responseData,
+        headers: AxiosHeaders$1.from(response.headers),
+        status: response.status,
+        statusText: response.statusText,
+        config,
+        request
+      });
+    })
+  } catch (err) {
+    onFinish();
+
+    if (err && err.name === 'TypeError' && /fetch/i.test(err.message)) {
+      throw Object.assign(
+        new AxiosError('Network Error', AxiosError.ERR_NETWORK, config, request),
+        {
+          cause: err.cause || err
+        }
+      )
+    }
+
+    throw AxiosError.from(err, err && err.code, config, request);
+  }
+});
+
 const knownAdapters = {
   http: httpAdapter,
-  xhr: xhrAdapter
+  xhr: xhrAdapter,
+  fetch: fetchAdapter
 };
 
 utils$1.forEach(knownAdapters, (fn, value) => {
@@ -50997,108 +51792,6 @@ function dispatchRequest(config) {
   });
 }
 
-const headersToObject = (thing) => thing instanceof AxiosHeaders$1 ? thing.toJSON() : thing;
-
-/**
- * Config-specific merge-function which creates a new config-object
- * by merging two configuration objects together.
- *
- * @param {Object} config1
- * @param {Object} config2
- *
- * @returns {Object} New object resulting from merging config2 to config1
- */
-function mergeConfig(config1, config2) {
-  // eslint-disable-next-line no-param-reassign
-  config2 = config2 || {};
-  const config = {};
-
-  function getMergedValue(target, source, caseless) {
-    if (utils$1.isPlainObject(target) && utils$1.isPlainObject(source)) {
-      return utils$1.merge.call({caseless}, target, source);
-    } else if (utils$1.isPlainObject(source)) {
-      return utils$1.merge({}, source);
-    } else if (utils$1.isArray(source)) {
-      return source.slice();
-    }
-    return source;
-  }
-
-  // eslint-disable-next-line consistent-return
-  function mergeDeepProperties(a, b, caseless) {
-    if (!utils$1.isUndefined(b)) {
-      return getMergedValue(a, b, caseless);
-    } else if (!utils$1.isUndefined(a)) {
-      return getMergedValue(undefined, a, caseless);
-    }
-  }
-
-  // eslint-disable-next-line consistent-return
-  function valueFromConfig2(a, b) {
-    if (!utils$1.isUndefined(b)) {
-      return getMergedValue(undefined, b);
-    }
-  }
-
-  // eslint-disable-next-line consistent-return
-  function defaultToConfig2(a, b) {
-    if (!utils$1.isUndefined(b)) {
-      return getMergedValue(undefined, b);
-    } else if (!utils$1.isUndefined(a)) {
-      return getMergedValue(undefined, a);
-    }
-  }
-
-  // eslint-disable-next-line consistent-return
-  function mergeDirectKeys(a, b, prop) {
-    if (prop in config2) {
-      return getMergedValue(a, b);
-    } else if (prop in config1) {
-      return getMergedValue(undefined, a);
-    }
-  }
-
-  const mergeMap = {
-    url: valueFromConfig2,
-    method: valueFromConfig2,
-    data: valueFromConfig2,
-    baseURL: defaultToConfig2,
-    transformRequest: defaultToConfig2,
-    transformResponse: defaultToConfig2,
-    paramsSerializer: defaultToConfig2,
-    timeout: defaultToConfig2,
-    timeoutMessage: defaultToConfig2,
-    withCredentials: defaultToConfig2,
-    withXSRFToken: defaultToConfig2,
-    adapter: defaultToConfig2,
-    responseType: defaultToConfig2,
-    xsrfCookieName: defaultToConfig2,
-    xsrfHeaderName: defaultToConfig2,
-    onUploadProgress: defaultToConfig2,
-    onDownloadProgress: defaultToConfig2,
-    decompress: defaultToConfig2,
-    maxContentLength: defaultToConfig2,
-    maxBodyLength: defaultToConfig2,
-    beforeRedirect: defaultToConfig2,
-    transport: defaultToConfig2,
-    httpAgent: defaultToConfig2,
-    httpsAgent: defaultToConfig2,
-    cancelToken: defaultToConfig2,
-    socketPath: defaultToConfig2,
-    responseEncoding: defaultToConfig2,
-    validateStatus: mergeDirectKeys,
-    headers: (a, b) => mergeDeepProperties(headersToObject(a), headersToObject(b), true)
-  };
-
-  utils$1.forEach(Object.keys(Object.assign({}, config1, config2)), function computeConfigValue(prop) {
-    const merge = mergeMap[prop] || mergeDeepProperties;
-    const configValue = merge(config1[prop], config2[prop], prop);
-    (utils$1.isUndefined(configValue) && merge !== mergeDirectKeys) || (config[prop] = configValue);
-  });
-
-  return config;
-}
-
 const validators$1 = {};
 
 // eslint-disable-next-line func-names
@@ -51223,12 +51916,15 @@ class Axios {
 
         // slice off the Error: ... line
         const stack = dummy.stack ? dummy.stack.replace(/^.+\n/, '') : '';
-
-        if (!err.stack) {
-          err.stack = stack;
-          // match without the 2 top stack lines
-        } else if (stack && !String(err.stack).endsWith(stack.replace(/^.+\n.+\n/, ''))) {
-          err.stack += '\n' + stack;
+        try {
+          if (!err.stack) {
+            err.stack = stack;
+            // match without the 2 top stack lines
+          } else if (stack && !String(err.stack).endsWith(stack.replace(/^.+\n.+\n/, ''))) {
+            err.stack += '\n' + stack;
+          }
+        } catch (e) {
+          // ignore the case where "stack" is an un-writable property
         }
       }
 
@@ -51714,7 +52410,7 @@ module.exports = JSON.parse('{"application/1d-interleaved-parityfec":{"source":"
 /***/ ((module) => {
 
 "use strict";
-module.exports = {"i8":"5.21.24"};
+module.exports = {"i8":"5.23.4"};
 
 /***/ })
 
